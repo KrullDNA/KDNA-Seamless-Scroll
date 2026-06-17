@@ -145,28 +145,36 @@
 
 	// --- Trigger -----------------------------------------------------------
 
-	var preloadOffset = cfg.triggerOffset || 1500;       // px before the preview to warm the cache
-	var triggerVh = (cfg.advanceTriggerVh != null) ? cfg.advanceTriggerVh : 0.6; // advance when preview top crosses this fraction of the viewport
-	var wasBelow = false;                                // has the preview been below the fold at least once?
+	// The element whose position drives things: an explicit trigger element if set,
+	// otherwise the Next Project link itself. Preloading starts as we approach it;
+	// the page advances when its top reaches the top of the browser.
+	var triggerEl = (cfg.advanceSelector && document.querySelector(cfg.advanceSelector)) || nextEl;
+	if (cfg.advanceSelector && triggerEl === nextEl) {
+		log('Advance trigger "' + cfg.advanceSelector + '" not found, falling back to the next link.');
+	}
+
+	var preloadOffset = cfg.triggerOffset || 1500;       // px before the trigger reaches the top to start preloading
+	var advanceTop = cfg.advanceTop || 0;                // advance when the trigger top reaches this many px from the top
+	var wasBelow = false;                                // has the trigger been below the fold at least once?
 
 	function check() {
-		var rect = nextEl.getBoundingClientRect();
+		var rect = triggerEl.getBoundingClientRect();
 		var vh = window.innerHeight || document.documentElement.clientHeight;
 
-		// Warm the cache once we are within preloadOffset of the preview.
-		if (rect.top - vh < preloadOffset) {
+		// Warm the cache once the trigger is within preloadOffset of the top.
+		if (rect.top <= preloadOffset) {
 			preload();
 		}
 
-		// Only arm advancing once the preview has genuinely sat below the fold, so
+		// Only arm advancing once the trigger has genuinely sat below the fold, so
 		// we advance when the visitor scrolls DOWN to meet it — never at page top,
-		// and never instantly if a wrongly-detected link was already on screen.
+		// and never instantly if the trigger is already on screen at load.
 		if (rect.top > vh) {
 			wasBelow = true;
 		}
 
-		if (wasBelow && rect.top <= vh * triggerVh) {
-			log('Advance: preview top', Math.round(rect.top), 'crossed', Math.round(vh * triggerVh));
+		if (wasBelow && rect.top <= advanceTop) {
+			log('Advance: trigger top reached', Math.round(rect.top));
 			advance();
 		}
 	}
@@ -187,15 +195,21 @@
 	function init() {
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', onScroll, { passive: true });
-		var r0 = nextEl.getBoundingClientRect();
+		var rl = nextEl.getBoundingClientRect();
+		var rt = triggerEl.getBoundingClientRect();
 		log('Next project link:', {
 			tag: nextEl.tagName,
 			cls: (nextEl.className || '').slice(0, 80),
 			href: nextUrl,
-			topAtLoad: Math.round(r0.top),
+			topAtLoad: Math.round(rl.top)
+		});
+		log('Advance trigger element:', {
+			tag: triggerEl.tagName,
+			cls: (triggerEl.className || '').slice(0, 80),
+			topAtLoad: Math.round(rt.top),
 			viewport: window.innerHeight
 		});
-		log('Auto-advance ready. Preload within', preloadOffset + 'px, advance at', triggerVh, 'of viewport.');
+		log('Auto-advance ready. Preload within ' + preloadOffset + 'px of top; advance when trigger top ≤ ' + advanceTop + 'px.');
 		// Preload (only) straight away if the preview is already close on load.
 		check();
 	}
