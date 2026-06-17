@@ -13,6 +13,53 @@ class KDNA_SPS_Frontend {
 
 	public function __construct() {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+		// The cover must paint with the very first frame, so its CSS goes high in
+		// the head and the element itself right after <body> opens.
+		add_action( 'wp_head', array( $this, 'render_cover_css' ), 1 );
+		add_action( 'wp_body_open', array( $this, 'render_cover' ) );
+	}
+
+	/**
+	 * Inline CSS for the transition cover. Opaque by default so the new page is
+	 * covered from its first paint, then a keyframe fades it out automatically —
+	 * meaning the content is never trapped behind it even if JS fails to run.
+	 */
+	public function render_cover_css() {
+		if ( ! $this->is_target_page() ) {
+			return;
+		}
+		$opts = kdna_sps_get_options();
+		if ( empty( $opts['transition_enabled'] ) ) {
+			return;
+		}
+		$colour = sanitize_hex_color( $opts['transition_colour'] );
+		if ( ! $colour ) {
+			$colour = '#ffffff';
+		}
+		$ms = absint( $opts['transition_ms'] );
+		if ( ! $ms ) {
+			$ms = 300;
+		}
+		echo '<style id="kdna-sps-cover-css">'
+			. '.kdna-sps-cover{position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483600;'
+			. 'background:' . $colour . ';opacity:1;pointer-events:none;will-change:opacity;'
+			. 'animation:kdnaSpsCoverOut ' . $ms . 'ms ease forwards;}'
+			. '@keyframes kdnaSpsCoverOut{from{opacity:1}to{opacity:0}}'
+			. '</style>';
+	}
+
+	/**
+	 * The cover element itself, printed as the first thing inside <body>.
+	 */
+	public function render_cover() {
+		if ( ! $this->is_target_page() ) {
+			return;
+		}
+		$opts = kdna_sps_get_options();
+		if ( empty( $opts['transition_enabled'] ) ) {
+			return;
+		}
+		echo '<div class="kdna-sps-cover" aria-hidden="true"></div>';
 	}
 
 	/**
@@ -99,6 +146,8 @@ class KDNA_SPS_Frontend {
 				'triggerOffset'    => apply_filters( 'kdna_sps_trigger_offset', absint( $opts['trigger_offset'] ) ),
 				'reinitAnimations' => ! empty( $opts['reinit_animations'] ),
 				'reexecScripts'    => ! empty( $opts['reexec_scripts'] ),
+				'transitionEnabled' => ! empty( $opts['transition_enabled'] ),
+				'transitionMs'     => absint( $opts['transition_ms'] ),
 				'loader'           => array(
 					'type'  => $opts['loader_type'],
 					'image' => esc_url( $opts['loader_image'] ),

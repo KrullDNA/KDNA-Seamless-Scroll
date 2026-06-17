@@ -75,6 +75,11 @@ class KDNA_SPS_Settings {
 		$out['reinit_animations']  = empty( $input['reinit_animations'] ) ? 0 : 1;
 		$out['reexec_scripts']     = empty( $input['reexec_scripts'] ) ? 0 : 1;
 
+		$out['transition_enabled'] = empty( $input['transition_enabled'] ) ? 0 : 1;
+		$tcol = sanitize_hex_color( isset( $input['transition_colour'] ) ? $input['transition_colour'] : '' );
+		$out['transition_colour']  = $tcol ? $tcol : $defaults['transition_colour'];
+		$out['transition_ms']      = max( 0, absint( isset( $input['transition_ms'] ) ? $input['transition_ms'] : $defaults['transition_ms'] ) );
+
 		$out['loader_type']        = ( isset( $input['loader_type'] ) && 'image' === $input['loader_type'] ) ? 'image' : 'spinner';
 		$out['loader_image']       = esc_url_raw( isset( $input['loader_image'] ) ? $input['loader_image'] : '' );
 
@@ -231,6 +236,32 @@ class KDNA_SPS_Settings {
 						<td>
 							<input type="text" name="kdna_sps_options[advance_selector]" value="<?php echo esc_attr( $o['advance_selector'] ); ?>" class="regular-text" placeholder="#next-project-trigger" />
 							<p class="description"><?php esc_html_e( 'CSS selector or #id of the element that triggers the change. The page advances when this element reaches the top of the browser. Leave blank to use the Next Project link itself.', 'kdna-seamless-scroll' ); ?></p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Page transition fade', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<label>
+								<input type="checkbox" name="kdna_sps_options[transition_enabled]" value="1" <?php checked( $o['transition_enabled'], 1 ); ?> />
+								<?php esc_html_e( 'Fade through a cover between projects (prevents the flash on page change)', 'kdna-seamless-scroll' ); ?>
+							</label>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Transition colour', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<input type="text" class="kdna-sps-colour" name="kdna_sps_options[transition_colour]" value="<?php echo esc_attr( $o['transition_colour'] ); ?>" data-default-color="#ffffff" />
+							<p class="description"><?php esc_html_e( 'The colour the page fades through between projects.', 'kdna-seamless-scroll' ); ?></p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Transition speed', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<input type="number" min="0" max="2000" name="kdna_sps_options[transition_ms]" value="<?php echo esc_attr( $o['transition_ms'] ); ?>" class="small-text" /> ms
+							<p class="description"><?php esc_html_e( 'How long the fade takes, in milliseconds. 300 is a good starting point.', 'kdna-seamless-scroll' ); ?></p>
 						</td>
 					</tr>
 

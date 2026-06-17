@@ -2,7 +2,7 @@
 /**
  * Plugin Name: KDNA Seamless Portfolio Scroll
  * Description: As the visitor reaches the next-project preview, preloads that portfolio project and auto-advances to it (no click), so each project loads as a real page with its MotionPage animations, backgrounds and scripts intact. Inspired by continuous-scroll agency sites.
- * Version: 1.6.3
+ * Version: 1.6.4
  * Author: Krull Design & Advertising
  * Text Domain: kdna-seamless-scroll
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Handy constants used across the plugin.
-define( 'KDNA_SPS_VERSION', '1.6.3' );
+define( 'KDNA_SPS_VERSION', '1.6.4' );
 define( 'KDNA_SPS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'KDNA_SPS_URL', plugin_dir_url( __FILE__ ) );
 
@@ -33,6 +33,11 @@ function kdna_sps_default_options() {
 		'trigger_offset'     => 1200,   // fallback preload distance in px when no preload element is set
 		'reinit_animations'  => 1,      // re-trigger Elementor animations on loaded projects
 		'reexec_scripts'     => 0,      // experimental: re-run MotionPage init on loaded projects
+
+		// Page transition cover (prevents the flash between projects).
+		'transition_enabled' => 1,        // show the fade cover on load and before advancing
+		'transition_colour'  => '#ffffff',// cover colour
+		'transition_ms'      => 300,      // fade duration in milliseconds
 
 		// Loading indicator.
 		'loader_type'        => 'spinner', // spinner or image
