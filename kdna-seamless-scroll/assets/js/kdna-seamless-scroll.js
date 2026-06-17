@@ -145,9 +145,9 @@
 
 	// --- Trigger -----------------------------------------------------------
 
-	var armed = false;                                   // only advance after a real scroll
 	var preloadOffset = cfg.triggerOffset || 1500;       // px before the preview to warm the cache
-	var triggerVh = (cfg.advanceTriggerVh != null) ? cfg.advanceTriggerVh : 0.5; // advance when preview top crosses this fraction of the viewport
+	var triggerVh = (cfg.advanceTriggerVh != null) ? cfg.advanceTriggerVh : 0.6; // advance when preview top crosses this fraction of the viewport
+	var wasBelow = false;                                // has the preview been below the fold at least once?
 
 	function check() {
 		var rect = nextEl.getBoundingClientRect();
@@ -158,17 +158,21 @@
 			preload();
 		}
 
-		// Advance once the preview's top crosses the trigger line, but only after
-		// the visitor has actually scrolled, so a short page does not redirect the
-		// instant it opens.
-		if (armed && rect.top <= vh * triggerVh) {
+		// Only arm advancing once the preview has genuinely sat below the fold, so
+		// we advance when the visitor scrolls DOWN to meet it — never at page top,
+		// and never instantly if a wrongly-detected link was already on screen.
+		if (rect.top > vh) {
+			wasBelow = true;
+		}
+
+		if (wasBelow && rect.top <= vh * triggerVh) {
+			log('Advance: preview top', Math.round(rect.top), 'crossed', Math.round(vh * triggerVh));
 			advance();
 		}
 	}
 
 	var ticking = false;
 	function onScroll() {
-		armed = true;
 		if (ticking) {
 			return;
 		}
@@ -183,8 +187,16 @@
 	function init() {
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', onScroll, { passive: true });
+		var r0 = nextEl.getBoundingClientRect();
+		log('Next project link:', {
+			tag: nextEl.tagName,
+			cls: (nextEl.className || '').slice(0, 80),
+			href: nextUrl,
+			topAtLoad: Math.round(r0.top),
+			viewport: window.innerHeight
+		});
 		log('Auto-advance ready. Preload within', preloadOffset + 'px, advance at', triggerVh, 'of viewport.');
-		// Preload straight away if the preview is already close on load.
+		// Preload (only) straight away if the preview is already close on load.
 		check();
 	}
 
