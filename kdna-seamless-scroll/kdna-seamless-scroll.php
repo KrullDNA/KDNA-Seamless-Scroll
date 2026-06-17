@@ -1,0 +1,72 @@
+<?php
+/**
+ * Plugin Name: KDNA Seamless Portfolio Scroll
+ * Description: Seamlessly loads the next portfolio project as the visitor nears the bottom of the current one, re-triggers Elementor animations on each loaded project, and updates the address bar and page title as each scrolls into view. Inspired by continuous-scroll agency sites.
+ * Version: 1.5.0
+ * Author: Krull Design & Advertising
+ * Text Domain: kdna-seamless-scroll
+ */
+
+// Stop anyone loading this file directly.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// Handy constants used across the plugin.
+define( 'KDNA_SPS_VERSION', '1.5.0' );
+define( 'KDNA_SPS_PATH', plugin_dir_path( __FILE__ ) );
+define( 'KDNA_SPS_URL', plugin_dir_url( __FILE__ ) );
+
+/**
+ * The default settings. These are used until anything is saved on the
+ * Settings page, and as a fallback for any missing values.
+ */
+function kdna_sps_default_options() {
+	return array(
+
+		// Behaviour.
+		'post_types'         => 'portfolio',
+		'content_selector'   => '',     // blank means use the built in defaults
+		'next_link_selector' => '',     // blank means auto detect
+		'trigger_offset'     => 1200,   // pixels from the bottom before loading starts
+		'reinit_animations'  => 1,      // re-trigger Elementor animations on loaded projects
+		'reexec_scripts'     => 0,      // experimental: re-run MotionPage init on loaded projects
+
+		// Loading indicator.
+		'loader_type'        => 'spinner', // spinner or image
+		'loader_image'       => '',        // custom image URL, used when loader_type is image
+		'spinner_colour'     => '#ffffff',
+		'loader_bg_enabled'  => 1,         // show the pill behind the icon
+		'loader_bg_colour'   => '#141a26',
+		'loader_size'        => 20,        // icon size in pixels
+	);
+}
+
+/**
+ * Get the saved settings merged over the defaults, so every key is always present.
+ */
+function kdna_sps_get_options() {
+	$saved = get_option( 'kdna_sps_options', array() );
+	if ( ! is_array( $saved ) ) {
+		$saved = array();
+	}
+	return wp_parse_args( $saved, kdna_sps_default_options() );
+}
+
+// Load the plugin classes.
+require_once KDNA_SPS_PATH . 'includes/class-kdna-sps-frontend.php';
+require_once KDNA_SPS_PATH . 'includes/class-kdna-sps-settings.php';
+
+// Start the plugin once WordPress has loaded all plugins.
+add_action( 'plugins_loaded', function () {
+	new KDNA_SPS_Frontend();
+	new KDNA_SPS_Settings();
+} );
+
+// Add a "Settings" link on the Plugins screen for convenience.
+add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), function ( $links ) {
+	$url  = admin_url( 'options-general.php?page=kdna-sps' );
+	$link = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'Settings', 'kdna-seamless-scroll' ) . '</a>';
+	array_unshift( $links, $link );
+	return $links;
+} );
