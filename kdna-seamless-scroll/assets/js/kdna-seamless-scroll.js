@@ -759,13 +759,16 @@
 
 		log('Rebuilt MotionPage SDK contexts for this panel:', built);
 
-		// Recalculate trigger positions now the new timelines exist, mirroring the
-		// refresh MotionPage runs itself on its initial page load.
+		// Recalculate trigger positions now the new timelines exist. In SDK mode the
+		// SDK owns its own ScrollTrigger internally, so we only nudge MotionPage's own
+		// refresher if it exists. We deliberately do NOT call the page's global
+		// ScrollTrigger here: on this site that global belongs to another library and
+		// throws inside _refreshAll, and the resize it would dispatch trips unrelated
+		// handlers. The SDK positions its triggers as the context builds.
 		var mf = window.MOTIONPAGE_FRONT;
 		if (mf && typeof mf._mp_refresher === 'function') {
 			mf._mp_refresher(60);
 		}
-		refreshScrollAnimations();
 
 		return built > 0;
 	}
