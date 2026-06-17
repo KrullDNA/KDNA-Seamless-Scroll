@@ -1,0 +1,75 @@
+/* KDNA Seamless Portfolio Scroll
+   Loader colours and size are driven by CSS variables set from the
+   Settings page. The values below are fallbacks. */
+
+/* Each loaded project sits in its own panel. */
+.kdna-sps-panel {
+	position: relative;
+}
+
+/* A gentle fade as each new project arrives. */
+.kdna-sps-loaded {
+	animation: kdna-sps-fade-in 0.6s ease both;
+}
+
+@keyframes kdna-sps-fade-in {
+	from { opacity: 0; }
+	to   { opacity: 1; }
+}
+
+/* Loading indicator, pinned to the bottom of the screen. */
+.kdna-sps-loader {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 28px;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease;
+	z-index: 9999;
+}
+
+.kdna-sps-loader.is-active {
+	opacity: 1;
+}
+
+/* A rounded background sits behind the icon so it stays visible on any colour. */
+.kdna-sps-loader::before {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: calc(var(--kdna-sps-size, 20px) + 26px);
+	height: calc(var(--kdna-sps-size, 20px) + 26px);
+	transform: translate(-50%, -50%);
+	border-radius: 50%;
+	background: var(--kdna-sps-bg, #141a26);
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+
+/* The spinning ring. */
+.kdna-sps-spinner {
+	position: relative;
+	width: var(--kdna-sps-size, 20px);
+	height: var(--kdna-sps-size, 20px);
+	box-sizing: border-box;
+	border: 2px solid var(--kdna-sps-spinner-track, rgba(255, 255, 255, 0.3));
+	border-top-color: var(--kdna-sps-spinner-colour, #ffffff);
+	border-radius: 50%;
+	animation: kdna-sps-spin 0.7s linear infinite;
+}
+
+/* A custom image or GIF used in place of the spinner. */
+.kdna-sps-loader-img {
+	position: relative;
+	display: block;
+	height: var(--kdna-sps-size, 20px);
+	width: auto;
+}
+
+@keyframes kdna-sps-spin {
+	to { transform: rotate(360deg); }
+}
