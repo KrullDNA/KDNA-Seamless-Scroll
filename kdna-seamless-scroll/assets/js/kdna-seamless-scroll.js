@@ -148,32 +148,54 @@
 	// The element whose position drives things: an explicit trigger element if set,
 	// otherwise the Next Project link itself. Preloading starts as we approach it;
 	// the page advances when its top reaches the top of the browser.
-	var triggerEl = (cfg.advanceSelector && document.querySelector(cfg.advanceSelector)) || nextEl;
-	if (cfg.advanceSelector && triggerEl === nextEl) {
-		log('Advance trigger "' + cfg.advanceSelector + '" not found, falling back to the next link.');
+	//
+	// The trigger and preload markers are resolved lazily: Elementor applies
+	// sticky/dynamic attributes after our script first runs, so an id that is not
+	// queryable on load becomes available a moment later. We keep looking until we
+	// find them, then stop, rather than giving up and falling back immediately.
+	var advanceSel = cfg.advanceSelector || '';
+	var preloadSel = cfg.preloadSelector || '';
+	var triggerEl = nextEl;                               // default until the marker is found
+	var preloadEl = null;
+	var advanceResolved = !advanceSel;                   // nothing to resolve if no selector set
+	var preloadResolved = !preloadSel;
+
+	function resolveTargets() {
+		if (!advanceResolved) {
+			var a = document.querySelector(advanceSel);
+			if (a) {
+				triggerEl = a;
+				advanceResolved = true;
+				log('Advance trigger resolved:', advanceSel);
+			}
+		}
+		if (!preloadResolved) {
+			var p = document.querySelector(preloadSel);
+			if (p) {
+				preloadEl = p;
+				preloadResolved = true;
+				log('Preload trigger resolved:', preloadSel);
+			}
+		}
 	}
 
-	// Optional separate marker for where preloading begins.
-	var preloadEl = (cfg.preloadSelector && document.querySelector(cfg.preloadSelector)) || null;
-	if (cfg.preloadSelector && !preloadEl) {
-		log('Preload trigger "' + cfg.preloadSelector + '" not found, falling back to the preload distance.');
-	}
-
-	var preloadOffset = cfg.triggerOffset || 1500;       // fallback px before the trigger reaches the top to start preloading
 	var advanceTop = cfg.advanceTop || 0;                // advance when the trigger top reaches this many px from the top
 	var wasBelow = false;                                // has the trigger been below the fold at least once?
 
 	function check() {
+		resolveTargets();
+
 		var rect = triggerEl.getBoundingClientRect();
 		var vh = window.innerHeight || document.documentElement.clientHeight;
 
-		// Warm the cache: when the preload marker scrolls into view if one is set,
-		// otherwise once the advance trigger is within the preload distance of the top.
-		if (preloadEl) {
-			if (preloadEl.getBoundingClientRect().top <= vh) {
+		// Warm the cache. With a preload marker, when it scrolls into view; without
+		// one, as soon as the visitor starts scrolling — so the next project is
+		// already cached by the time they reach the bottom (no wait on advance).
+		if (preloadSel) {
+			if (preloadEl && preloadEl.getBoundingClientRect().top <= vh) {
 				preload();
 			}
-		} else if (rect.top <= preloadOffset) {
+		} else {
 			preload();
 		}
 
@@ -206,22 +228,21 @@
 	function init() {
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', onScroll, { passive: true });
-		var rl = nextEl.getBoundingClientRect();
-		var rt = triggerEl.getBoundingClientRect();
+		resolveTargets();
 		log('Next project link:', {
 			tag: nextEl.tagName,
 			cls: (nextEl.className || '').slice(0, 80),
 			href: nextUrl,
-			topAtLoad: Math.round(rl.top)
+			topAtLoad: Math.round(nextEl.getBoundingClientRect().top)
 		});
-		log('Advance trigger element:', {
-			tag: triggerEl.tagName,
-			cls: (triggerEl.className || '').slice(0, 80),
-			topAtLoad: Math.round(rt.top),
+		log('Config:', {
+			advanceSelector: advanceSel || '(next link)',
+			advanceResolved: advanceResolved,
+			preloadSelector: preloadSel || '(on first scroll)',
+			preloadResolved: preloadResolved,
 			viewport: window.innerHeight
 		});
-		log('Auto-advance ready. Preload within ' + preloadOffset + 'px of top; advance when trigger top ≤ ' + advanceTop + 'px.');
-		// Preload (only) straight away if the preview is already close on load.
+		// Run a first pass so anything already in position is handled.
 		check();
 	}
 
