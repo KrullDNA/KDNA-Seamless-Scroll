@@ -69,6 +69,7 @@ class KDNA_SPS_Settings {
 		$out['post_types']         = sanitize_text_field( isset( $input['post_types'] ) ? $input['post_types'] : $defaults['post_types'] );
 		$out['content_selector']   = sanitize_text_field( isset( $input['content_selector'] ) ? $input['content_selector'] : '' );
 		$out['next_link_selector'] = sanitize_text_field( isset( $input['next_link_selector'] ) ? $input['next_link_selector'] : '' );
+		$out['preload_selector']   = sanitize_text_field( isset( $input['preload_selector'] ) ? $input['preload_selector'] : '' );
 		$out['advance_selector']   = sanitize_text_field( isset( $input['advance_selector'] ) ? $input['advance_selector'] : '' );
 		$out['trigger_offset']     = absint( isset( $input['trigger_offset'] ) ? $input['trigger_offset'] : $defaults['trigger_offset'] );
 		$out['reinit_animations']  = empty( $input['reinit_animations'] ) ? 0 : 1;
@@ -218,6 +219,14 @@ class KDNA_SPS_Settings {
 					</tr>
 
 					<tr>
+						<th scope="row"><?php esc_html_e( 'Preload trigger element', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<input type="text" name="kdna_sps_options[preload_selector]" value="<?php echo esc_attr( $o['preload_selector'] ); ?>" class="regular-text" placeholder="#next-project-preload" />
+							<p class="description"><?php esc_html_e( 'CSS selector or #id of the element that starts the preload. The next project begins loading when this element scrolls into view. Leave blank to use the Preload distance below instead.', 'kdna-seamless-scroll' ); ?></p>
+						</td>
+					</tr>
+
+					<tr>
 						<th scope="row"><?php esc_html_e( 'Advance trigger element', 'kdna-seamless-scroll' ); ?></th>
 						<td>
 							<input type="text" name="kdna_sps_options[advance_selector]" value="<?php echo esc_attr( $o['advance_selector'] ); ?>" class="regular-text" placeholder="#next-project-trigger" />
@@ -229,7 +238,7 @@ class KDNA_SPS_Settings {
 						<th scope="row"><?php esc_html_e( 'Preload distance', 'kdna-seamless-scroll' ); ?></th>
 						<td>
 							<input type="number" min="0" max="8000" name="kdna_sps_options[trigger_offset]" value="<?php echo esc_attr( $o['trigger_offset'] ); ?>" class="small-text" /> px
-							<p class="description"><?php esc_html_e( 'How many pixels before the trigger reaches the top to start preloading the next project. Larger means it loads earlier.', 'kdna-seamless-scroll' ); ?></p>
+							<p class="description"><?php esc_html_e( 'Only used when no Preload trigger element is set above. Starts preloading this many pixels before the advance trigger reaches the top.', 'kdna-seamless-scroll' ); ?></p>
 						</td>
 					</tr>
 				</table>

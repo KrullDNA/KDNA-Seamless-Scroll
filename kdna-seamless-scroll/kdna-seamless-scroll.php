@@ -28,8 +28,9 @@ function kdna_sps_default_options() {
 		'post_types'         => 'portfolio',
 		'content_selector'   => '',     // blank means use the built in defaults
 		'next_link_selector' => '',     // blank means auto detect
+		'preload_selector'   => '',     // CSS selector/id; start preloading when it scrolls into view (blank = use preload distance)
 		'advance_selector'   => '',     // CSS selector/id; advance when it reaches the top of the viewport (blank = use the next link)
-		'trigger_offset'     => 1200,   // pixels before the trigger reaches the top that preloading starts
+		'trigger_offset'     => 1200,   // fallback preload distance in px when no preload element is set
 		'reinit_animations'  => 1,      // re-trigger Elementor animations on loaded projects
 		'reexec_scripts'     => 0,      // experimental: re-run MotionPage init on loaded projects
 
