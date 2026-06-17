@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: KDNA Seamless Portfolio Scroll
- * Description: Seamlessly loads the next portfolio project as the visitor nears the bottom of the current one, re-triggers Elementor animations on each loaded project, and updates the address bar and page title as each scrolls into view. Inspired by continuous-scroll agency sites.
- * Version: 1.5.0
+ * Description: As the visitor reaches the next-project preview, preloads that portfolio project and auto-advances to it (no click), so each project loads as a real page with its MotionPage animations, backgrounds and scripts intact. Inspired by continuous-scroll agency sites.
+ * Version: 1.6.0
  * Author: Krull Design & Advertising
  * Text Domain: kdna-seamless-scroll
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Handy constants used across the plugin.
-define( 'KDNA_SPS_VERSION', '1.5.0' );
+define( 'KDNA_SPS_VERSION', '1.6.0' );
 define( 'KDNA_SPS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'KDNA_SPS_URL', plugin_dir_url( __FILE__ ) );
 
