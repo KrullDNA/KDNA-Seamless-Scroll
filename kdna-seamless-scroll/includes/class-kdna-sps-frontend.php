@@ -13,32 +13,57 @@ class KDNA_SPS_Frontend {
 
 	public function __construct() {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
-		// The cover must paint with the very first frame, so its CSS goes high in
-		// the head and the element itself right after <body> opens.
-		add_action( 'wp_head', array( $this, 'render_cover_css' ), 1 );
+		// Transition CSS goes high in the head; the colour cover (if used) is
+		// printed right after <body> so it paints with the very first frame.
+		add_action( 'wp_head', array( $this, 'render_transition_head' ), 1 );
 		add_action( 'wp_body_open', array( $this, 'render_cover' ) );
 	}
 
 	/**
-	 * Inline CSS for the transition cover. Opaque by default so the new page is
-	 * covered from its first paint, then a keyframe fades it out automatically —
-	 * meaning the content is never trapped behind it even if JS fails to run.
+	 * The chosen transition mode: 'crossfade' (no colour — pages cross-dissolve
+	 * via the View Transitions API), 'cover' (fade through a colour) or 'none'.
 	 */
-	public function render_cover_css() {
+	private function get_transition_mode() {
+		$opts = kdna_sps_get_options();
+		$mode = isset( $opts['transition_mode'] ) ? $opts['transition_mode'] : 'crossfade';
+		if ( ! in_array( $mode, array( 'crossfade', 'cover', 'none' ), true ) ) {
+			$mode = 'crossfade';
+		}
+		return $mode;
+	}
+
+	/**
+	 * Inline transition CSS in the head. For crossfade this opts the page into
+	 * cross-document View Transitions so the browser dissolves between projects
+	 * with no colour. For cover it styles an opaque overlay that fades out on
+	 * load (via a keyframe, so content is never trapped even if JS fails).
+	 */
+	public function render_transition_head() {
 		if ( ! $this->is_target_page() ) {
 			return;
 		}
-		$opts = kdna_sps_get_options();
-		if ( empty( $opts['transition_enabled'] ) ) {
+		$mode = $this->get_transition_mode();
+		if ( 'none' === $mode ) {
 			return;
 		}
+		$opts = kdna_sps_get_options();
+		$ms   = absint( $opts['transition_ms'] );
+		if ( ! $ms ) {
+			$ms = 300;
+		}
+
+		if ( 'crossfade' === $mode ) {
+			echo '<style id="kdna-sps-vt-css">'
+				. '@view-transition{navigation:auto;}'
+				. '::view-transition-old(root),::view-transition-new(root){animation-duration:' . $ms . 'ms;}'
+				. '</style>';
+			return;
+		}
+
+		// Colour cover.
 		$colour = sanitize_hex_color( $opts['transition_colour'] );
 		if ( ! $colour ) {
 			$colour = '#ffffff';
-		}
-		$ms = absint( $opts['transition_ms'] );
-		if ( ! $ms ) {
-			$ms = 300;
 		}
 		echo '<style id="kdna-sps-cover-css">'
 			. '.kdna-sps-cover{position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483600;'
@@ -49,14 +74,14 @@ class KDNA_SPS_Frontend {
 	}
 
 	/**
-	 * The cover element itself, printed as the first thing inside <body>.
+	 * The colour-cover element, printed as the first thing inside <body>. Only
+	 * used in 'cover' mode; crossfade and none need no element.
 	 */
 	public function render_cover() {
 		if ( ! $this->is_target_page() ) {
 			return;
 		}
-		$opts = kdna_sps_get_options();
-		if ( empty( $opts['transition_enabled'] ) ) {
+		if ( 'cover' !== $this->get_transition_mode() ) {
 			return;
 		}
 		echo '<div class="kdna-sps-cover" aria-hidden="true"></div>';
@@ -146,7 +171,7 @@ class KDNA_SPS_Frontend {
 				'triggerOffset'    => apply_filters( 'kdna_sps_trigger_offset', absint( $opts['trigger_offset'] ) ),
 				'reinitAnimations' => ! empty( $opts['reinit_animations'] ),
 				'reexecScripts'    => ! empty( $opts['reexec_scripts'] ),
-				'transitionEnabled' => ! empty( $opts['transition_enabled'] ),
+				'transitionMode'   => $this->get_transition_mode(),
 				'transitionMs'     => absint( $opts['transition_ms'] ),
 				'loader'           => array(
 					'type'  => $opts['loader_type'],

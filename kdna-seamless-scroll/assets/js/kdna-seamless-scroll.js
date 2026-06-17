@@ -147,13 +147,17 @@
 			return;
 		}
 
-		var cover = (cfg.transitionEnabled !== false) ? document.querySelector('.kdna-sps-cover') : null;
+		// Crossfade / none modes: just navigate. In crossfade mode the page has
+		// opted into cross-document View Transitions, so the browser dissolves
+		// between the two pages itself (no colour, no flash) — and because your
+		// matching image lines up, the change looks seamless.
+		var cover = document.querySelector('.kdna-sps-cover');
 		if (!cover) {
 			location.href = nextUrl;
 			return;
 		}
 
-		// Fade the cover up from wherever it is now, then navigate once covered.
+		// Colour-cover mode: fade the cover up, then navigate once covered.
 		var ms = cfg.transitionMs || 300;
 		cover.style.animation = 'none';
 		cover.style.transition = 'opacity ' + ms + 'ms ease';
