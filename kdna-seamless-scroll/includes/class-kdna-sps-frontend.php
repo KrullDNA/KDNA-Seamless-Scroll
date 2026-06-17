@@ -53,9 +53,16 @@ class KDNA_SPS_Frontend {
 		}
 
 		if ( 'crossfade' === $mode ) {
+			// Hold the outgoing page fully opaque underneath and fade the incoming
+			// page in on top, so the combined image never drops below 100% opacity.
+			// That removes the split-second white flicker the default cross-fade
+			// shows (where both pages are half-transparent and the backdrop peeks
+			// through), while still dissolving seamlessly when the images match.
 			echo '<style id="kdna-sps-vt-css">'
 				. '@view-transition{navigation:auto;}'
-				. '::view-transition-old(root),::view-transition-new(root){animation-duration:' . $ms . 'ms;}'
+				. '::view-transition-old(root){animation:none;mix-blend-mode:normal;}'
+				. '::view-transition-new(root){animation:kdnaSpsVtIn ' . $ms . 'ms ease both;mix-blend-mode:normal;}'
+				. '@keyframes kdnaSpsVtIn{from{opacity:0}to{opacity:1}}'
 				. '</style>';
 			return;
 		}
