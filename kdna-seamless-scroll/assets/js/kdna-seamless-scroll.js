@@ -96,6 +96,7 @@
 			return;
 		}
 		preloaded = true;
+		var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
 		try {
 			var link = document.createElement('link');
 			link.rel = 'prefetch';
@@ -106,9 +107,12 @@
 		// Belt and braces: a same-origin fetch warms the HTML cache even where
 		// rel=prefetch is ignored by the browser.
 		try {
-			fetch(nextUrl, { credentials: 'same-origin' }).catch(function () {});
+			fetch(nextUrl, { credentials: 'same-origin' }).then(function () {
+				var now = (window.performance && performance.now) ? performance.now() : Date.now();
+				log('Preload fetch complete in', Math.round(now - t0), 'ms — next project is warm.');
+			}).catch(function () {});
 		} catch (e) {}
-		log('Preloaded next project.');
+		log('Preloading next project…');
 	}
 
 	// --- Advance -----------------------------------------------------------
@@ -120,27 +124,29 @@
 		}
 		advancing = true;
 		preload();
-		log('Auto-advancing to next project.');
+		log('Auto-advancing to next project:', nextUrl);
 
-		// Trigger the site's own transition: clicking the link fires any MotionPage
-		// Page Exit animation bound to it, then navigates. If nothing navigates
-		// shortly (no transition set, or the element is not a real link) we fall
-		// back to a plain navigation.
-		var navigated = false;
-		window.addEventListener('beforeunload', function () { navigated = true; });
-
-		try {
-			nextEl.click();
-		} catch (e) {
-			location.href = nextUrl;
-			return;
-		}
-
-		setTimeout(function () {
-			if (!navigated) {
+		// Navigate straight to the (preloaded) next project. It loads as a real page
+		// so all its MotionPage animations, backgrounds and scripts run normally, and
+		// because it is already cached the change is near-instant. If you want the
+		// site's own MotionPage Page Exit fade instead, set cfg.useLinkTransition.
+		if (cfg.useLinkTransition) {
+			var navigated = false;
+			window.addEventListener('beforeunload', function () { navigated = true; });
+			try {
+				nextEl.click();
+			} catch (e) {
 				location.href = nextUrl;
+				return;
 			}
-		}, cfg.advanceFallbackMs || 3000);
+			setTimeout(function () {
+				if (!navigated) {
+					location.href = nextUrl;
+				}
+			}, cfg.advanceFallbackMs || 1200);
+		} else {
+			location.href = nextUrl;
+		}
 	}
 
 	// --- Trigger -----------------------------------------------------------
@@ -207,7 +213,9 @@
 		}
 
 		if (wasBelow && rect.top <= advanceTop) {
-			log('Advance: trigger top reached', Math.round(rect.top));
+			if (!advancing) {
+				log('Advance: trigger top reached', Math.round(rect.top));
+			}
 			advance();
 		}
 	}
