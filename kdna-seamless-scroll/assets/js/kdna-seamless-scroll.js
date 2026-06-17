@@ -126,10 +126,10 @@
 		preload();
 		log('Auto-advancing to next project:', nextUrl);
 
-		// Navigate straight to the (preloaded) next project. It loads as a real page
-		// so all its MotionPage animations, backgrounds and scripts run normally, and
-		// because it is already cached the change is near-instant. If you want the
-		// site's own MotionPage Page Exit fade instead, set cfg.useLinkTransition.
+		// Navigate to the (preloaded) next project. It loads as a real page so all
+		// its MotionPage animations, backgrounds and scripts run normally. The cover
+		// fades up first so there is no flash between the old and new page; the new
+		// page starts under its own opaque cover and fades it out on arrival.
 		if (cfg.useLinkTransition) {
 			var navigated = false;
 			window.addEventListener('beforeunload', function () { navigated = true; });
@@ -144,9 +144,29 @@
 					location.href = nextUrl;
 				}
 			}, cfg.advanceFallbackMs || 1200);
-		} else {
-			location.href = nextUrl;
+			return;
 		}
+
+		// Crossfade / none modes: just navigate. In crossfade mode the page has
+		// opted into cross-document View Transitions, so the browser dissolves
+		// between the two pages itself (no colour, no flash) — and because your
+		// matching image lines up, the change looks seamless.
+		var cover = document.querySelector('.kdna-sps-cover');
+		if (!cover) {
+			location.href = nextUrl;
+			return;
+		}
+
+		// Colour-cover mode: fade the cover up, then navigate once covered.
+		var ms = cfg.transitionMs || 300;
+		cover.style.animation = 'none';
+		cover.style.transition = 'opacity ' + ms + 'ms ease';
+		cover.style.pointerEvents = 'auto';
+		void cover.offsetWidth;            // reflow so the transition takes effect
+		cover.style.opacity = '1';
+		setTimeout(function () {
+			location.href = nextUrl;
+		}, ms);
 	}
 
 	// --- Trigger -----------------------------------------------------------
