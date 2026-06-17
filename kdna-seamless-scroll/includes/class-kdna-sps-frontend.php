@@ -93,6 +93,7 @@ class KDNA_SPS_Frontend {
 			array(
 				'contentSelectors' => $this->get_content_selectors(),
 				'nextLinkSelector' => apply_filters( 'kdna_sps_next_link_selector', (string) $opts['next_link_selector'] ),
+				'preloadSelector'  => apply_filters( 'kdna_sps_preload_selector', (string) $opts['preload_selector'] ),
 				'advanceSelector'  => apply_filters( 'kdna_sps_advance_selector', (string) $opts['advance_selector'] ),
 				'postTypeSlug'     => apply_filters( 'kdna_sps_post_type_slug', current( $this->get_post_types() ) ),
 				'triggerOffset'    => apply_filters( 'kdna_sps_trigger_offset', absint( $opts['trigger_offset'] ) ),

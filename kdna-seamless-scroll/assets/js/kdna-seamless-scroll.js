@@ -153,7 +153,13 @@
 		log('Advance trigger "' + cfg.advanceSelector + '" not found, falling back to the next link.');
 	}
 
-	var preloadOffset = cfg.triggerOffset || 1500;       // px before the trigger reaches the top to start preloading
+	// Optional separate marker for where preloading begins.
+	var preloadEl = (cfg.preloadSelector && document.querySelector(cfg.preloadSelector)) || null;
+	if (cfg.preloadSelector && !preloadEl) {
+		log('Preload trigger "' + cfg.preloadSelector + '" not found, falling back to the preload distance.');
+	}
+
+	var preloadOffset = cfg.triggerOffset || 1500;       // fallback px before the trigger reaches the top to start preloading
 	var advanceTop = cfg.advanceTop || 0;                // advance when the trigger top reaches this many px from the top
 	var wasBelow = false;                                // has the trigger been below the fold at least once?
 
@@ -161,8 +167,13 @@
 		var rect = triggerEl.getBoundingClientRect();
 		var vh = window.innerHeight || document.documentElement.clientHeight;
 
-		// Warm the cache once the trigger is within preloadOffset of the top.
-		if (rect.top <= preloadOffset) {
+		// Warm the cache: when the preload marker scrolls into view if one is set,
+		// otherwise once the advance trigger is within the preload distance of the top.
+		if (preloadEl) {
+			if (preloadEl.getBoundingClientRect().top <= vh) {
+				preload();
+			}
+		} else if (rect.top <= preloadOffset) {
 			preload();
 		}
 
