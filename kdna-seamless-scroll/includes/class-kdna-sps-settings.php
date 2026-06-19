@@ -81,6 +81,18 @@ class KDNA_SPS_Settings {
 		$out['transition_colour']  = $tcol ? $tcol : $defaults['transition_colour'];
 		$out['transition_ms']      = max( 0, absint( isset( $input['transition_ms'] ) ? $input['transition_ms'] : $defaults['transition_ms'] ) );
 
+		// One CSS selector per line; keep only selector-safe characters so the
+		// value can never break out of the inline <style> it is printed into.
+		$sel_raw = isset( $input['persistent_selectors'] ) ? (string) $input['persistent_selectors'] : '';
+		$sel_lines = array();
+		foreach ( preg_split( '/[\r\n]+/', $sel_raw ) as $line ) {
+			$line = trim( preg_replace( '/[^a-zA-Z0-9 .#:_\-\[\]=\"\'()>~+*^$|]/', '', $line ) );
+			if ( '' !== $line ) {
+				$sel_lines[] = $line;
+			}
+		}
+		$out['persistent_selectors'] = implode( "\n", $sel_lines );
+
 		$out['loader_type']        = ( isset( $input['loader_type'] ) && 'image' === $input['loader_type'] ) ? 'image' : 'spinner';
 		$out['loader_image']       = esc_url_raw( isset( $input['loader_image'] ) ? $input['loader_image'] : '' );
 
@@ -265,6 +277,16 @@ class KDNA_SPS_Settings {
 						<td>
 							<input type="number" min="0" max="2000" name="kdna_sps_options[transition_ms]" value="<?php echo esc_attr( $o['transition_ms'] ); ?>" class="small-text" /> ms
 							<p class="description"><?php esc_html_e( 'How long the fade takes, in milliseconds. 300 is a good starting point.', 'kdna-seamless-scroll' ); ?></p>
+						</td>
+					</tr>
+
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Pinned elements', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<textarea name="kdna_sps_options[persistent_selectors]" rows="3" class="large-text code" placeholder=".site-header&#10;.site-logo"><?php echo esc_textarea( $o['persistent_selectors'] ); ?></textarea>
+							<p class="description">
+								<?php esc_html_e( 'Crossfade mode only. One CSS selector per line — each must match a single element (e.g. your header and logo). These elements stay painted in place across the transition instead of flickering. Tip: right-click your logo in the browser, choose Inspect, and copy its class (e.g. .site-logo).', 'kdna-seamless-scroll' ); ?>
+							</p>
 						</td>
 					</tr>
 
