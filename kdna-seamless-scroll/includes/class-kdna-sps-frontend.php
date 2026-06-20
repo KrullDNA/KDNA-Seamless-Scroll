@@ -13,10 +13,10 @@ class KDNA_SPS_Frontend {
 
 	public function __construct() {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
-		// Transition CSS goes high in the head; the colour cover (if used) is
-		// printed right after <body> so it paints with the very first frame.
-		add_action( 'wp_head', array( $this, 'render_transition_head' ), 1 );
-		add_action( 'wp_body_open', array( $this, 'render_cover' ) );
+		// Note: the View Transitions crossfade / colour cover belonged to the
+		// navigation-based build. This AJAX build stacks projects in place (no
+		// page load between them), so those transitions no longer apply and are
+		// intentionally not rendered.
 	}
 
 	/**
@@ -242,6 +242,7 @@ class KDNA_SPS_Frontend {
 				'triggerOffset'    => apply_filters( 'kdna_sps_trigger_offset', absint( $opts['trigger_offset'] ) ),
 				'reinitAnimations' => ! empty( $opts['reinit_animations'] ),
 				'reexecScripts'    => ! empty( $opts['reexec_scripts'] ),
+				'marqueeSpeed'     => isset( $opts['marquee_speed'] ) ? (float) $opts['marquee_speed'] : 0.7,
 				'transitionMode'   => $this->get_transition_mode(),
 				'transitionMs'     => absint( $opts['transition_ms'] ),
 				'pins'             => $this->get_pins(),
