@@ -282,6 +282,7 @@
 		for (var i = 0; i < pins.length; i++) {
 			var els = [].slice.call(document.querySelectorAll(pins[i].sel));
 			if (!els.length) {
+				log('Pin: no element matches', pins[i].sel);
 				continue;
 			}
 			var live = els.filter(pinIsLive);
@@ -305,6 +306,7 @@
 				// carries the name at snapshot time and the browser keeps it valid.
 				els[j].style.viewTransitionName = (els[j] === chosen) ? pins[i].name : 'none';
 			}
+			log('Pin applied:', pins[i].sel, '→', pins[i].name, 'on 1 of', els.length, 'match(es)');
 		}
 	}
 
