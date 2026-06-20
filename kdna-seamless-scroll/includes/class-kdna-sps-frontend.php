@@ -133,7 +133,15 @@ class KDNA_SPS_Frontend {
 	private function persistent_elements_css() {
 		$css = '';
 		foreach ( $this->get_pins() as $pin ) {
-			$css .= $pin['sel'] . '{view-transition-name:' . $pin['name'] . ';}';
+			$n    = $pin['name'];
+			$css .= $pin['sel'] . '{view-transition-name:' . $n . ';}';
+			// A named element becomes its own transition group, which otherwise
+			// cross-fades on the browser's default timing — a flash on top of the
+			// page crossfade. Hold it dead still instead: snap the group into place
+			// and show the incoming header immediately with no fade.
+			$css .= '::view-transition-group(' . $n . '){animation-duration:0s;}';
+			$css .= '::view-transition-old(' . $n . '){animation:none;opacity:0;}';
+			$css .= '::view-transition-new(' . $n . '){animation:none;opacity:1;}';
 		}
 		return $css;
 	}
