@@ -63,6 +63,7 @@ class KDNA_SPS_Frontend {
 				. '::view-transition-old(root){animation:none;mix-blend-mode:normal;}'
 				. '::view-transition-new(root){animation:kdnaSpsVtIn ' . $ms . 'ms ease both;mix-blend-mode:normal;}'
 				. '@keyframes kdnaSpsVtIn{from{opacity:0}to{opacity:1}}'
+				. $this->persistent_elements_css()
 				. '</style>';
 			return;
 		}
@@ -92,6 +93,43 @@ class KDNA_SPS_Frontend {
 			return;
 		}
 		echo '<div class="kdna-sps-cover" aria-hidden="true"></div>';
+	}
+
+	/**
+	 * CSS that pins persistent elements (typically the header/logo) during the
+	 * crossfade. Giving an element a stable view-transition-name tells the
+	 * browser it is the SAME element on both pages, so it stays painted in place
+	 * instead of being caught in the dissolve — which stops the logo flicker.
+	 *
+	 * Each selector must match a single element (a name can only be used once per
+	 * page), so enter one element per line on the settings screen.
+	 */
+	private function persistent_elements_css() {
+		$opts = kdna_sps_get_options();
+		$raw  = isset( $opts['persistent_selectors'] ) ? (string) $opts['persistent_selectors'] : '';
+		$css  = '';
+		$i    = 0;
+		foreach ( preg_split( '/[\r\n]+/', $raw ) as $line ) {
+			$selector = $this->sanitise_css_selector( $line );
+			if ( '' === $selector ) {
+				continue;
+			}
+			$i++;
+			$css .= $selector . '{view-transition-name:kdna-vt-' . $i . ';contain:layout;}';
+		}
+		return $css;
+	}
+
+	/**
+	 * Keep only characters that are valid in a CSS selector, so a setting can
+	 * never break out of the inline <style> or inject extra rules.
+	 */
+	private function sanitise_css_selector( $selector ) {
+		$selector = trim( (string) $selector );
+		// Strip anything outside a conservative selector allow-list (notably no
+		// <, {, }, ; or @, which could escape the style block).
+		$selector = preg_replace( '/[^a-zA-Z0-9 .#:_\-\[\]=\"\'()>~+*^$|]/', '', $selector );
+		return trim( $selector );
 	}
 
 	/**
