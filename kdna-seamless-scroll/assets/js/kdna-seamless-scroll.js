@@ -253,9 +253,83 @@
 		});
 	}
 
+	// ── Persistent-element pinning ───────────────────────────────────────────
+	// A stable view-transition-name keeps the header/logo painted in place across
+	// the crossfade instead of dissolving (the flicker). Elementor's sticky effect
+	// clones the header, though, so a plain CSS name lands on two elements and the
+	// browser voids it. Here we re-apply the name with JS to ONLY the live element
+	// (skipping the hidden sticky spacer clone), right before each page snapshot.
+	var pins = (cfg.pins && cfg.pins.length) ? cfg.pins : null;
+	var pinScheduled = false;
+
+	// Is this the on-screen element, not a hidden Elementor sticky spacer/clone?
+	function pinIsLive(el) {
+		if (el.classList && el.classList.contains('elementor-sticky__spacer')) {
+			return false;
+		}
+		var cs = window.getComputedStyle(el);
+		if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) {
+			return false;
+		}
+		var r = el.getBoundingClientRect();
+		return r.width > 0 && r.height > 0;
+	}
+
+	function applyPins() {
+		if (!pins || cfg.transitionMode !== 'crossfade') {
+			return;
+		}
+		for (var i = 0; i < pins.length; i++) {
+			var els = [].slice.call(document.querySelectorAll(pins[i].sel));
+			if (!els.length) {
+				continue;
+			}
+			var live = els.filter(pinIsLive);
+			if (!live.length) {
+				live = els;
+			}
+			// Prefer a fixed/sticky element nearest the top — the visible header.
+			live.sort(function (a, b) {
+				var pa = window.getComputedStyle(a).position;
+				var pb = window.getComputedStyle(b).position;
+				var fa = (pa === 'fixed' || pa === 'sticky') ? 0 : 1;
+				var fb = (pb === 'fixed' || pb === 'sticky') ? 0 : 1;
+				if (fa !== fb) {
+					return fa - fb;
+				}
+				return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+			});
+			var chosen = live[0];
+			for (var j = 0; j < els.length; j++) {
+				// Inline style beats the baseline stylesheet, so only ONE element
+				// carries the name at snapshot time and the browser keeps it valid.
+				els[j].style.viewTransitionName = (els[j] === chosen) ? pins[i].name : 'none';
+			}
+		}
+	}
+
+	if (pins) {
+		// pageswap: the outgoing page, just before its snapshot is captured.
+		// pagereveal: the incoming page, just before it first renders.
+		window.addEventListener('pageswap', function (e) {
+			if (e.viewTransition) { applyPins(); }
+		});
+		window.addEventListener('pagereveal', function (e) {
+			if (e.viewTransition) { applyPins(); }
+		});
+		// Keep the name on the live element as the sticky state flips on scroll.
+		window.addEventListener('scroll', function () {
+			if (pinScheduled) { return; }
+			pinScheduled = true;
+			var raf = window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
+			raf(function () { applyPins(); pinScheduled = false; });
+		}, { passive: true });
+	}
+
 	function init() {
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', onScroll, { passive: true });
+		applyPins();
 		resolveTargets();
 		log('Next project link:', {
 			tag: nextEl.tagName,

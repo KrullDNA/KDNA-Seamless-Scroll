@@ -285,7 +285,7 @@ class KDNA_SPS_Settings {
 						<td>
 							<textarea name="kdna_sps_options[persistent_selectors]" rows="3" class="large-text code" placeholder=".site-header&#10;.site-logo"><?php echo esc_textarea( $o['persistent_selectors'] ); ?></textarea>
 							<p class="description">
-								<?php esc_html_e( 'Crossfade mode only. One CSS selector per line — each must match a single element (e.g. your header and logo). These elements stay painted in place across the transition instead of flickering. Tip: right-click your logo in the browser, choose Inspect, and copy its class (e.g. .site-logo).', 'kdna-seamless-scroll' ); ?>
+								<?php esc_html_e( 'Crossfade mode only. One CSS selector per line — your header and/or logo. These stay painted in place across the transition instead of flickering. Use the element\'s Elementor ID class (e.g. .elementor-element-c61be95), not the long copied selector chain. Sticky/cloned headers are handled automatically. Tip: right-click the element, choose Inspect, and copy its elementor-element-… class.', 'kdna-seamless-scroll' ); ?>
 							</p>
 						</td>
 					</tr>
