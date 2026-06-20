@@ -96,18 +96,14 @@ class KDNA_SPS_Frontend {
 	}
 
 	/**
-	 * CSS that pins persistent elements (typically the header/logo) during the
-	 * crossfade. Giving an element a stable view-transition-name tells the
-	 * browser it is the SAME element on both pages, so it stays painted in place
-	 * instead of being caught in the dissolve — which stops the logo flicker.
-	 *
-	 * Each selector must match a single element (a name can only be used once per
-	 * page), so enter one element per line on the settings screen.
+	 * The persistent-element pins as a list of [ 'sel' => selector, 'name' =>
+	 * view-transition-name ] pairs, built from the saved selectors (one per line).
+	 * Shared by the baseline CSS and the JS that de-duplicates sticky-header clones.
 	 */
-	private function persistent_elements_css() {
+	private function get_pins() {
 		$opts = kdna_sps_get_options();
 		$raw  = isset( $opts['persistent_selectors'] ) ? (string) $opts['persistent_selectors'] : '';
-		$css  = '';
+		$pins = array();
 		$i    = 0;
 		foreach ( preg_split( '/[\r\n]+/', $raw ) as $line ) {
 			$selector = $this->sanitise_css_selector( $line );
@@ -115,7 +111,29 @@ class KDNA_SPS_Frontend {
 				continue;
 			}
 			$i++;
-			$css .= $selector . '{view-transition-name:kdna-vt-' . $i . ';contain:layout;}';
+			$pins[] = array(
+				'sel'  => $selector,
+				'name' => 'kdna-vt-' . $i,
+			);
+		}
+		return $pins;
+	}
+
+	/**
+	 * Baseline CSS that pins persistent elements (typically the header/logo)
+	 * during the crossfade. A stable view-transition-name tells the browser the
+	 * element is the SAME on both pages, so it holds in place instead of being
+	 * caught in the dissolve — which stops the logo flicker.
+	 *
+	 * This alone breaks when Elementor's sticky effect clones the header (the name
+	 * then matches two elements and the browser voids it), so the script in
+	 * kdna-seamless-scroll.js re-applies the name to only the live element right
+	 * before each page snapshot. The CSS still covers the fresh, un-cloned page.
+	 */
+	private function persistent_elements_css() {
+		$css = '';
+		foreach ( $this->get_pins() as $pin ) {
+			$css .= $pin['sel'] . '{view-transition-name:' . $pin['name'] . ';}';
 		}
 		return $css;
 	}
@@ -218,6 +236,7 @@ class KDNA_SPS_Frontend {
 				'reexecScripts'    => ! empty( $opts['reexec_scripts'] ),
 				'transitionMode'   => $this->get_transition_mode(),
 				'transitionMs'     => absint( $opts['transition_ms'] ),
+				'pins'             => $this->get_pins(),
 				'loader'           => array(
 					'type'  => $opts['loader_type'],
 					'image' => esc_url( $opts['loader_image'] ),
