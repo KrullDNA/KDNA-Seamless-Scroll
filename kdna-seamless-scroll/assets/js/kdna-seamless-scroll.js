@@ -282,23 +282,28 @@
 				continue;
 			}
 
-			// A rule can list several selectors. Elementor's hero backgrounds use
-			// :not(.elementor-motion-effects-...), so strip any :not() refinement,
-			// then skip anything still carrying a real pseudo state like :hover.
+			// A rule can list several selectors, each often ancestor-scoped
+			// (.elementor-2999 .elementor-element-Y) or refined with :not() and child
+			// combinators (> .elementor-motion-effects-contain). We don't try to
+			// match the whole selector inside the panel (the ancestor scope lives on
+			// <body>, outside it). Instead we read the TARGET element id from the
+			// selector and pin the image straight onto that element with !important,
+			// so it shows whatever Elementor's motion-effects layer does or doesn't do.
 			rawSelector.split(',').forEach(function (sel) {
-				sel = sel.replace(/:not\([^)]*\)/g, '').trim();
-				if (!sel || sel.indexOf(':') > -1) {
+				var ids = sel.match(/elementor-element-[0-9a-z]+/gi);
+				if (!ids || !ids.length) {
 					return;
 				}
+				var targetClass = '.' + ids[ids.length - 1];
 				var els;
 				try {
-					els = panel.querySelectorAll(sel);
+					els = panel.querySelectorAll(targetClass);
 				} catch (e) {
 					return;
 				}
 				els.forEach(function (el) {
 					decls.forEach(function (pair) {
-						el.style.setProperty(pair[0], pair[1]);
+						el.style.setProperty(pair[0], pair[1], 'important');
 						applied++;
 					});
 				});
@@ -488,6 +493,22 @@
 		log('BG diag blank-ish images (' + blanks.length + '): ' + JSON.stringify(blanks.slice(0, 4)));
 	}
 
+	// After all the pinning and injection has run, report the real computed
+	// background of every Elementor container in the panel, so we can see exactly
+	// which sections came out blank (and their ids) rather than guessing.
+	function diagnoseFinalBackgrounds(panel) {
+		var report = [];
+		var withBg = 0;
+		panel.querySelectorAll('.e-con, .elementor-top-section, section.elementor-element').forEach(function (el) {
+			var m = (el.className || '').match(/elementor-element-([0-9a-z]+)/i);
+			var bg = window.getComputedStyle(el).backgroundImage;
+			var has = bg && bg !== 'none';
+			if (has) { withBg++; }
+			report.push((m ? m[1] : '?') + (has ? '=' + bg.replace(/^url\(["']?/, '').slice(0, 38) : '=NONE'));
+		});
+		log('FINAL backgrounds ' + panel.id + ' (' + withBg + '/' + report.length + ' have one): ' + report.join('  |  '));
+	}
+
 	function appendPanel(contentNode, url, title) {
 
 		var imported = document.importNode(contentNode, true);
@@ -565,6 +586,12 @@
 				// overridden by another project sharing the same template.
 				applyOwnBackgrounds(doc, newPanel);
 				applyScopedBackgrounds(doc, newPanel);
+
+				// Report the FINAL state once everything has settled, so we can see
+				// which containers really did (or did not) end up with a background.
+				if (cfg.debug) {
+					setTimeout(function () { diagnoseFinalBackgrounds(newPanel); }, 1400);
+				}
 
 				// Experimental: re-run the loaded project's own MotionPage init.
 				reExecuteMotionPageScripts(doc);

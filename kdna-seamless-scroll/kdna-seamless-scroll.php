@@ -2,7 +2,7 @@
 /**
  * Plugin Name: KDNA Seamless Portfolio Scroll
  * Description: As the visitor nears the bottom of a portfolio project, fetches the next project and slots it in underneath (no click, no page load), swapping the address bar as each scrolls into view. Re-inits Elementor widgets, pins per-project background images, and runs marquee strips on every loaded project. Inspired by continuous-scroll agency sites.
- * Version: 2.0.1
+ * Version: 2.0.2
  * Author: Krull Design & Advertising
  * Text Domain: kdna-seamless-scroll
  */
@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Handy constants used across the plugin.
-define( 'KDNA_SPS_VERSION', '2.0.1' );
+define( 'KDNA_SPS_VERSION', '2.0.2' );
 define( 'KDNA_SPS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'KDNA_SPS_URL', plugin_dir_url( __FILE__ ) );
 
