@@ -74,6 +74,8 @@ class KDNA_SPS_Settings {
 		$out['trigger_offset']     = absint( isset( $input['trigger_offset'] ) ? $input['trigger_offset'] : $defaults['trigger_offset'] );
 		$out['reinit_animations']  = empty( $input['reinit_animations'] ) ? 0 : 1;
 		$out['reexec_scripts']     = empty( $input['reexec_scripts'] ) ? 0 : 1;
+		$ms_raw = isset( $input['marquee_speed'] ) ? (float) $input['marquee_speed'] : $defaults['marquee_speed'];
+		$out['marquee_speed']      = ( $ms_raw > 0 && $ms_raw <= 20 ) ? $ms_raw : $defaults['marquee_speed'];
 
 		$mode = isset( $input['transition_mode'] ) ? $input['transition_mode'] : 'crossfade';
 		$out['transition_mode']    = in_array( $mode, array( 'crossfade', 'cover', 'none' ), true ) ? $mode : 'crossfade';
@@ -221,6 +223,14 @@ class KDNA_SPS_Settings {
 					</tr>
 
 					<tr>
+						<th scope="row"><?php esc_html_e( 'Marquee speed', 'kdna-seamless-scroll' ); ?></th>
+						<td>
+							<input type="number" min="0.1" max="20" step="0.1" name="kdna_sps_options[marquee_speed]" value="<?php echo esc_attr( $o['marquee_speed'] ); ?>" class="small-text" /> px / tick
+							<p class="description"><?php esc_html_e( 'Speed of the .marquee (scrolls left) and .marquee2 (scrolls right) strips. The plugin runs these on every loaded project, so remove any old inline marquee <script> from your template to avoid it running twice.', 'kdna-seamless-scroll' ); ?></p>
+						</td>
+					</tr>
+
+					<tr>
 						<th scope="row"><?php esc_html_e( 'Content selector', 'kdna-seamless-scroll' ); ?></th>
 						<td>
 							<input type="text" name="kdna_sps_options[content_selector]" value="<?php echo esc_attr( $o['content_selector'] ); ?>" class="regular-text" placeholder=".elementor-location-single" />
@@ -249,44 +259,6 @@ class KDNA_SPS_Settings {
 						<td>
 							<input type="text" name="kdna_sps_options[advance_selector]" value="<?php echo esc_attr( $o['advance_selector'] ); ?>" class="regular-text" placeholder="#next-project-trigger" />
 							<p class="description"><?php esc_html_e( 'CSS selector or #id of the element that triggers the change. The page advances when this element reaches the top of the browser. Leave blank to use the Next Project link itself.', 'kdna-seamless-scroll' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Page transition', 'kdna-seamless-scroll' ); ?></th>
-						<td>
-							<select name="kdna_sps_options[transition_mode]">
-								<option value="crossfade" <?php selected( $o['transition_mode'], 'crossfade' ); ?>><?php esc_html_e( 'Crossfade (no colour) — pages dissolve into each other', 'kdna-seamless-scroll' ); ?></option>
-								<option value="cover" <?php selected( $o['transition_mode'], 'cover' ); ?>><?php esc_html_e( 'Colour fade — fade through a solid colour', 'kdna-seamless-scroll' ); ?></option>
-								<option value="none" <?php selected( $o['transition_mode'], 'none' ); ?>><?php esc_html_e( 'None', 'kdna-seamless-scroll' ); ?></option>
-							</select>
-							<p class="description"><?php esc_html_e( 'Crossfade dissolves one project into the next with no colour — ideal when the last image of one project matches the first image of the next. Uses the browser View Transitions API (Chrome, Edge, Safari); other browsers fall back to a plain change.', 'kdna-seamless-scroll' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Transition colour', 'kdna-seamless-scroll' ); ?></th>
-						<td>
-							<input type="text" class="kdna-sps-colour" name="kdna_sps_options[transition_colour]" value="<?php echo esc_attr( $o['transition_colour'] ); ?>" data-default-color="#ffffff" />
-							<p class="description"><?php esc_html_e( 'Only used in Colour fade mode — the colour the page fades through.', 'kdna-seamless-scroll' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Transition speed', 'kdna-seamless-scroll' ); ?></th>
-						<td>
-							<input type="number" min="0" max="2000" name="kdna_sps_options[transition_ms]" value="<?php echo esc_attr( $o['transition_ms'] ); ?>" class="small-text" /> ms
-							<p class="description"><?php esc_html_e( 'How long the fade takes, in milliseconds. 300 is a good starting point.', 'kdna-seamless-scroll' ); ?></p>
-						</td>
-					</tr>
-
-					<tr>
-						<th scope="row"><?php esc_html_e( 'Pinned elements', 'kdna-seamless-scroll' ); ?></th>
-						<td>
-							<textarea name="kdna_sps_options[persistent_selectors]" rows="3" class="large-text code" placeholder=".site-header&#10;.site-logo"><?php echo esc_textarea( $o['persistent_selectors'] ); ?></textarea>
-							<p class="description">
-								<?php esc_html_e( 'Crossfade mode only. One CSS selector per line — your header and/or logo. These stay painted in place across the transition instead of flickering. Use the element\'s Elementor ID class (e.g. .elementor-element-c61be95), not the long copied selector chain. Sticky/cloned headers are handled automatically. Tip: right-click the element, choose Inspect, and copy its elementor-element-… class.', 'kdna-seamless-scroll' ); ?>
-							</p>
 						</td>
 					</tr>
 

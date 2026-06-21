@@ -1,14 +1,11 @@
 /**
- * KDNA Seamless Portfolio Scroll — auto-advance engine
+ * KDNA Seamless Portfolio Scroll
  *
- * As the visitor reaches the next-project preview at the foot of a portfolio
- * project, this quietly preloads that project and then advances to it for them,
- * with no click required. Because each project loads as a real page, all of its
- * MotionPage animations, parallax backgrounds, custom scripts and video
- * initialise normally; the site's own page transition (if set) masks the load.
+ * As the visitor nears the bottom of a portfolio project, this quietly fetches
+ * the next project, slots its content in underneath, and swaps the address bar
+ * and page title over as each project scrolls into view. No click required.
  *
- * It advances by triggering the in-content "Next Project" link, so any MotionPage
- * Page Exit animation on that link still plays — now fired automatically.
+ * Stage 1: the core loading engine. Elementor animation re-init arrives in Stage 2.
  */
 (function () {
 	'use strict';
@@ -22,221 +19,469 @@
 		}
 	}
 
-	function sameUrl(a, b) {
-		return a.split('#')[0] === b.split('#')[0];
-	}
-
-	// Does this href look like a single project permalink, e.g. /portfolio/slug/ ?
-	// Used so a container link (HTML tag "a", JetEngine "Next Project URL" field)
-	// is recognised even though its href is a clean permalink rather than ?p=.
-	function isProjectSingle(href) {
+	// Turn any URL into a clean, comparable form (no hash).
+	function normalise(url) {
 		try {
-			var path = new URL(href, location.origin).pathname;
-			return new RegExp('/' + (cfg.postTypeSlug || 'portfolio') + '/[^/]+/?$').test(path);
+			var a = document.createElement('a');
+			a.href = url;
+			return a.href.split('#')[0];
 		} catch (e) {
-			return false;
+			return url;
 		}
 	}
 
-	// Find the link to the next project: an explicit selector if one is set in
-	// settings (recommended for an Elementor container link), otherwise the last
-	// in-content link that points to another project — a ?p= href, a permalink to
-	// a project single, or link text containing "next".
-	function findNextLink(scope) {
-		scope = scope || document;
-
-		if (cfg.nextLinkSelector) {
-			var explicit = scope.querySelector(cfg.nextLinkSelector);
-			if (explicit && explicit.href) {
-				return explicit;
-			}
+	// Keep the ?kdna_debug flag in the address bar when we swap URLs, so it
+	// stays on if the page is reloaded during testing.
+	function withDebug(url) {
+		if (!cfg.debug) {
+			return url;
 		}
-
-		var links = scope.querySelectorAll('a[href]');
-		var candidate = null;
-		for (var i = 0; i < links.length; i++) {
-			var href = links[i].href;
-			var text = (links[i].textContent || '').toLowerCase();
-			if (!href || sameUrl(href, location.href)) {
-				continue;
+		try {
+			var u = new URL(url, window.location.origin);
+			if (!u.searchParams.has('kdna_debug')) {
+				u.searchParams.set('kdna_debug', '1');
 			}
-			if (href.indexOf('?p=') > -1 || text.indexOf('next') > -1 || isProjectSingle(href)) {
-				candidate = links[i];
-			}
+			return u.href;
+		} catch (e) {
+			return url;
 		}
-		return candidate;
 	}
 
-	var nextEl = findNextLink(document);
-	if (!nextEl) {
-		log('No next project link found, auto-advance idle.');
+	// Find the element that holds a single project's content.
+	function findContainer(root) {
+		var selectors = cfg.contentSelectors || ['.elementor-location-single', 'main'];
+		for (var i = 0; i < selectors.length; i++) {
+			var el = (root || document).querySelector(selectors[i]);
+			if (el) {
+				return el;
+			}
+		}
+		return null;
+	}
+
+	var container = findContainer(document);
+	if (!container) {
+		log('No content container found, nothing to do.');
 		return;
 	}
 
-	// Keep the debug flag travelling with us so the project we advance into also
-	// logs to the console during testing.
-	if (cfg.debug) {
-		try {
-			var du = new URL(nextEl.href, location.origin);
-			if (!du.searchParams.has('kdna_debug')) {
-				du.searchParams.set('kdna_debug', '1');
-				nextEl.href = du.href;
+	// --- State -------------------------------------------------------------
+
+	var loading = false;          // a fetch is in progress
+	var finished = false;         // no more projects to load
+	var loadedUrls = {};          // guard against loading the same project twice
+	var currentNextUrl = null;    // the project we will load next
+	var panels = [];              // every project section now on the page
+	var lastPanel = null;         // the most recently added panel
+	var panelCounter = 0;         // gives each loaded panel a unique id
+	var panelObserver = null;     // watches which panel is centre screen
+	var loaderEl = null;          // the loading indicator element
+
+	// The page we are starting on counts as already loaded.
+	loadedUrls[normalise(location.href)] = true;
+
+	// --- Finding the next project link -------------------------------------
+
+	function findNextLink(scope) {
+
+		// If a precise selector was supplied in settings, trust it.
+		if (cfg.nextLinkSelector) {
+			var explicit = scope.querySelector(cfg.nextLinkSelector);
+			if (explicit && explicit.href) {
+				return explicit.href;
 			}
-		} catch (e) {}
+		}
+
+		// Otherwise auto-detect: an in-content link pointing to another project.
+		// Your "Next Project" link uses a ?p= style href and includes the word "next",
+		// so we look for either of those signals and keep the last match (lowest on the page).
+		var links = scope.querySelectorAll('a[href]');
+		var candidate = null;
+
+		for (var i = 0; i < links.length; i++) {
+			var href = links[i].href;
+			var text = (links[i].textContent || '').toLowerCase();
+
+			if (!href) {
+				continue;
+			}
+			if (loadedUrls[normalise(href)]) {
+				continue;
+			}
+			if (href.indexOf('?p=') > -1 || text.indexOf('next') > -1) {
+				candidate = href;
+			}
+		}
+
+		return candidate;
 	}
 
-	var nextUrl = nextEl.href;
-	log('Next project:', nextUrl);
+	// --- Bringing across each project's own Elementor styling --------------
 
-	// --- Preload -----------------------------------------------------------
+	function injectPostCss(doc) {
 
-	var preloaded = false;
-	function preload() {
-		if (preloaded) {
-			return;
+		// External per-post Elementor stylesheets. These are scoped by Elementor
+		// to the post id, so they do not clash between projects. Dynamic hero
+		// backgrounds are handled separately and inline, see applyOwnBackgrounds.
+		var links = doc.querySelectorAll('link[rel="stylesheet"][href]');
+		for (var i = 0; i < links.length; i++) {
+			var href = links[i].getAttribute('href');
+			if (!href || href.indexOf('/uploads/elementor/css/post-') === -1) {
+				continue;
+			}
+			if (document.querySelector('link[href="' + href + '"]')) {
+				continue;
+			}
+			var clone = document.createElement('link');
+			clone.rel = 'stylesheet';
+			clone.href = href;
+			document.head.appendChild(clone);
+			log('Injected CSS:', href);
 		}
-		preloaded = true;
-		var t0 = (window.performance && performance.now) ? performance.now() : Date.now();
-		try {
-			var link = document.createElement('link');
-			link.rel = 'prefetch';
-			link.as = 'document';
-			link.href = nextUrl;
-			document.head.appendChild(link);
-		} catch (e) {}
-		// Belt and braces: a same-origin fetch warms the HTML cache even where
-		// rel=prefetch is ignored by the browser.
-		try {
-			fetch(nextUrl, { credentials: 'same-origin' }).then(function () {
-				var now = (window.performance && performance.now) ? performance.now() : Date.now();
-				log('Preload fetch complete in', Math.round(now - t0), 'ms — next project is warm.');
-			}).catch(function () {});
-		} catch (e) {}
-		log('Preloading next project…');
 	}
 
-	// --- Advance -----------------------------------------------------------
+	// Take each loaded project's own background images and pin them straight onto
+	// the matching elements inside this project's panel. An inline style beats any
+	// shared rule, so projects can no longer borrow each other's hero image. We
+	// look in inline styles first, then fetch and read the project's own external
+	// stylesheets, since classic Elementor backgrounds usually live in a CSS file.
+	function applyOwnBackgrounds(doc, panel) {
 
-	var advancing = false;
-	function advance() {
-		if (advancing) {
-			return;
+		var hid = heroId(panel);
+
+		// Useful picture of where this project's styles live.
+		if (cfg.debug) {
+			var sheetNames = [];
+			doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(function (l) {
+				var h = l.getAttribute('href') || '';
+				if (h.indexOf('/uploads/') > -1 || h.indexOf('elementor') > -1) {
+					sheetNames.push(h.split('/').pop());
+				}
+			});
+			log('Stylesheets in fetched project: ' + JSON.stringify(sheetNames));
+			log('Hero element id: ' + hid);
 		}
-		advancing = true;
-		preload();
-		log('Auto-advancing to next project:', nextUrl);
 
-		// Navigate to the (preloaded) next project. It loads as a real page so all
-		// its MotionPage animations, backgrounds and scripts run normally. The cover
-		// fades up first so there is no flash between the old and new page; the new
-		// page starts under its own opaque cover and fades it out on arrival.
-		if (cfg.useLinkTransition) {
-			var navigated = false;
-			window.addEventListener('beforeunload', function () { navigated = true; });
-			try {
-				nextEl.click();
-			} catch (e) {
-				location.href = nextUrl;
+		// 1) Inline styles in the fetched page.
+		var inline = [];
+		doc.querySelectorAll('style').forEach(function (st) {
+			var css = st.textContent || '';
+			if (css.indexOf('url(') > -1) {
+				inline.push(css);
+			}
+		});
+		var inlineCombined = inline.join('\n');
+
+		// Pin straight away (covers static container backgrounds), then pin again
+		// after Elementor's motion effects have built their moving layers, so those
+		// layers receive the image too. Without this, parallax sections show blank.
+		applyBgRules(inlineCombined, panel, 'inline styles', hid);
+		setTimeout(function () {
+			applyBgRules(inlineCombined, panel, 'inline styles (after layers)', hid);
+		}, 350);
+		setTimeout(function () {
+			applyBgRules(inlineCombined, panel, 'inline styles (after layers)', hid);
+		}, 900);
+
+		// 2) External per-post Elementor stylesheets, fetched and read.
+		doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(function (link) {
+			var href = link.getAttribute('href');
+			if (!href || href.indexOf('/uploads/elementor/css/post-') === -1) {
 				return;
 			}
-			setTimeout(function () {
-				if (!navigated) {
-					location.href = nextUrl;
+			fetch(href, { credentials: 'same-origin' })
+				.then(function (r) { return r.text(); })
+				.then(function (css) {
+					applyBgRules(css, panel, href.split('/').pop(), hid);
+					setTimeout(function () {
+						applyBgRules(css, panel, href.split('/').pop() + ' (after layers)', hid);
+					}, 900);
+				})
+				.catch(function (e) { log('Background CSS fetch failed:', href, e); });
+		});
+	}
+
+	// Pull the hero element's Elementor id (the part after elementor-element-).
+	function heroId(panel) {
+		var el = panel.querySelector('[class*="elementor-element-"]');
+		if (!el) {
+			return '';
+		}
+		var m = (el.className || '').match(/elementor-element-([0-9a-z]+)/i);
+		return m ? m[1] : '';
+	}
+
+	// Remove @media, @keyframes and other at-rule blocks so we only read base
+	// rules. This avoids applying a mobile background image on desktop.
+	function stripAtBlocks(css) {
+		var i = css.indexOf('@');
+		while (i !== -1) {
+			var brace = css.indexOf('{', i);
+			if (brace === -1) {
+				break;
+			}
+			var depth = 1;
+			var j = brace + 1;
+			while (j < css.length && depth > 0) {
+				var ch = css.charAt(j);
+				j++;
+				if (ch === '{') {
+					depth++;
+				} else if (ch === '}') {
+					depth--;
 				}
-			}, cfg.advanceFallbackMs || 1200);
+			}
+			css = css.slice(0, i) + css.slice(j);
+			i = css.indexOf('@', i);
+		}
+		return css;
+	}
+
+	// Find background rules in some CSS text and pin them onto matching elements
+	// inside the panel. Handles plain background-image and Elementor's custom
+	// property style backgrounds (for example --e-bg-image).
+	function applyBgRules(cssText, panel, source, hid) {
+
+		if (!cssText) {
 			return;
 		}
 
-		// Crossfade / none modes: just navigate. In crossfade mode the page has
-		// opted into cross-document View Transitions, so the browser dissolves
-		// between the two pages itself (no colour, no flash) — and because your
-		// matching image lines up, the change looks seamless.
-		var cover = document.querySelector('.kdna-sps-cover');
-		if (!cover) {
-			location.href = nextUrl;
+		// Diagnostic: show how the hero id is declared in this source, if at all.
+		if (cfg.debug && hid) {
+			var needle = 'elementor-element-' + hid;
+			var at = cssText.indexOf(needle);
+			if (at > -1) {
+				log('Hero id seen in ' + source + ': ' + cssText.slice(at, at + 180).replace(/\s+/g, ' '));
+			}
+		}
+
+		var css = stripAtBlocks(cssText);
+		var ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+		var match;
+		var applied = 0;
+
+		while ((match = ruleRe.exec(css)) !== null) {
+			var rawSelector = match[1].trim();
+			var body = match[2];
+
+			if (!rawSelector || rawSelector.indexOf('@') > -1) {
+				continue;
+			}
+			if (body.indexOf('url(') === -1) {
+				continue;
+			}
+
+			// Collect background-image and any custom property that holds a url.
+			var decls = [];
+			var declRe = /(background-image|background|--[\w-]+)\s*:\s*([^;]*url\([^;]*\)[^;]*)/gi;
+			var d;
+			while ((d = declRe.exec(body)) !== null) {
+				decls.push([d[1], d[2].trim()]);
+			}
+			if (!decls.length) {
+				continue;
+			}
+
+			// A rule can list several selectors. Elementor's hero backgrounds use
+			// :not(.elementor-motion-effects-...), so strip any :not() refinement,
+			// then skip anything still carrying a real pseudo state like :hover.
+			rawSelector.split(',').forEach(function (sel) {
+				sel = sel.replace(/:not\([^)]*\)/g, '').trim();
+				if (!sel || sel.indexOf(':') > -1) {
+					return;
+				}
+				var els;
+				try {
+					els = panel.querySelectorAll(sel);
+				} catch (e) {
+					return;
+				}
+				els.forEach(function (el) {
+					decls.forEach(function (pair) {
+						el.style.setProperty(pair[0], pair[1]);
+						applied++;
+					});
+				});
+			});
+		}
+
+		if (applied) {
+			log('Pinned backgrounds from ' + source + ':', applied);
+		}
+	}
+
+	// --- Adding a loaded project to the page -------------------------------
+
+	// Common lazy-load patterns hold the real image in a data attribute and only
+	// swap it in on scroll, which never fires for content added after load. We
+	// swap them in immediately so images and backgrounds show.
+	function revealLazyAssets(scope) {
+
+		scope.querySelectorAll('img[data-src]').forEach(function (img) {
+			var src = img.getAttribute('data-src');
+			if (src) { img.setAttribute('src', src); }
+		});
+
+		scope.querySelectorAll('img[data-srcset], source[data-srcset]').forEach(function (el) {
+			var ss = el.getAttribute('data-srcset');
+			if (ss) { el.setAttribute('srcset', ss); }
+		});
+
+		['data-bg', 'data-background', 'data-bg-url', 'data-background-image'].forEach(function (attr) {
+			scope.querySelectorAll('[' + attr + ']').forEach(function (el) {
+				var v = el.getAttribute(attr);
+				if (v) { el.style.backgroundImage = 'url(' + v + ')'; }
+			});
+		});
+
+		// Tidy up classes that some lazy loaders use to keep images hidden.
+		scope.querySelectorAll('.lazyload, .lazyloading').forEach(function (el) {
+			el.classList.remove('lazyload', 'lazyloading');
+			el.classList.add('lazyloaded');
+		});
+	}
+
+	// Report how the first section's background is built, and any blank images,
+	// so we can see exactly why a hero background might not be showing.
+	function diagnoseBackground(scope) {
+
+		if (!cfg.debug) {
 			return;
 		}
 
-		// Colour-cover mode: fade the cover up, then navigate once covered.
-		var ms = cfg.transitionMs || 300;
-		cover.style.animation = 'none';
-		cover.style.transition = 'opacity ' + ms + 'ms ease';
-		cover.style.pointerEvents = 'auto';
-		void cover.offsetWidth;            // reflow so the transition takes effect
-		cover.style.opacity = '1';
-		setTimeout(function () {
-			location.href = nextUrl;
-		}, ms);
-	}
-
-	// --- Trigger -----------------------------------------------------------
-
-	// The element whose position drives things: an explicit trigger element if set,
-	// otherwise the Next Project link itself. Preloading starts as we approach it;
-	// the page advances when its top reaches the top of the browser.
-	//
-	// The trigger and preload markers are resolved lazily: Elementor applies
-	// sticky/dynamic attributes after our script first runs, so an id that is not
-	// queryable on load becomes available a moment later. We keep looking until we
-	// find them, then stop, rather than giving up and falling back immediately.
-	var advanceSel = cfg.advanceSelector || '';
-	var preloadSel = cfg.preloadSelector || '';
-	var triggerEl = nextEl;                               // default until the marker is found
-	var preloadEl = null;
-	var advanceResolved = !advanceSel;                   // nothing to resolve if no selector set
-	var preloadResolved = !preloadSel;
-
-	function resolveTargets() {
-		if (!advanceResolved) {
-			var a = document.querySelector(advanceSel);
-			if (a) {
-				triggerEl = a;
-				advanceResolved = true;
-				log('Advance trigger resolved:', advanceSel);
-			}
-		}
-		if (!preloadResolved) {
-			var p = document.querySelector(preloadSel);
-			if (p) {
-				preloadEl = p;
-				preloadResolved = true;
-				log('Preload trigger resolved:', preloadSel);
-			}
-		}
-	}
-
-	var advanceTop = cfg.advanceTop || 0;                // advance when the trigger top reaches this many px from the top
-	var wasBelow = false;                                // has the trigger been below the fold at least once?
-
-	function check() {
-		resolveTargets();
-
-		var rect = triggerEl.getBoundingClientRect();
-		var vh = window.innerHeight || document.documentElement.clientHeight;
-
-		// Warm the cache. With a preload marker, when it scrolls into view; without
-		// one, as soon as the visitor starts scrolling — so the next project is
-		// already cached by the time they reach the bottom (no wait on advance).
-		if (preloadSel) {
-			if (preloadEl && preloadEl.getBoundingClientRect().top <= vh) {
-				preload();
-			}
+		var first = scope.querySelector('.elementor-section, .e-con, section, .elementor-container, .elementor-widget');
+		if (first) {
+			var cs = window.getComputedStyle(first);
+			log('BG diag first block: ' + JSON.stringify({
+				tag: first.tagName,
+				cls: (first.className || '').slice(0, 140),
+				inlineBg: (first.style && first.style.backgroundImage) || '',
+				computedBg: (cs.backgroundImage || '').slice(0, 180),
+				dataSettings: (first.getAttribute('data-settings') || '').slice(0, 180)
+			}));
 		} else {
-			preload();
+			log('BG diag: no section-like element found in the panel.');
 		}
 
-		// Only arm advancing once the trigger has genuinely sat below the fold, so
-		// we advance when the visitor scrolls DOWN to meet it — never at page top,
-		// and never instantly if the trigger is already on screen at load.
-		if (rect.top > vh) {
-			wasBelow = true;
-		}
-
-		if (wasBelow && rect.top <= advanceTop) {
-			if (!advancing) {
-				log('Advance: trigger top reached', Math.round(rect.top));
+		var blanks = [];
+		scope.querySelectorAll('img').forEach(function (img) {
+			var src = img.getAttribute('src') || '';
+			if (!src || src.indexOf('data:image') === 0) {
+				blanks.push({
+					src: src.slice(0, 70),
+					dataSrc: (img.getAttribute('data-src') || '').slice(0, 70),
+					cls: (img.className || '').slice(0, 70)
+				});
 			}
-			advance();
+		});
+		log('BG diag blank-ish images (' + blanks.length + '): ' + JSON.stringify(blanks.slice(0, 4)));
+	}
+
+	function appendPanel(contentNode, url, title) {
+
+		var imported = document.importNode(contentNode, true);
+
+		var wrapper = document.createElement('div');
+		wrapper.id = 'kdna-sps-panel-' + (++panelCounter);
+		wrapper.className = 'kdna-sps-panel kdna-sps-loaded';
+		wrapper.setAttribute('data-kdna-url', url);
+		wrapper.setAttribute('data-kdna-title', title || '');
+		wrapper.appendChild(imported);
+
+		// Insert just after the previous panel, which keeps everything above the footer.
+		var ref = lastPanel || container;
+		ref.parentNode.insertBefore(wrapper, ref.nextSibling);
+
+		// Make sure any lazy-loaded images and backgrounds in the new project show.
+		revealLazyAssets(wrapper);
+		diagnoseBackground(wrapper);
+
+		lastPanel = wrapper;
+		panels.push(wrapper);
+		observePanel(wrapper);
+
+		log('Appended project:', url);
+
+		// Signal for Stage 2 (Elementor re-init) to wake up the new content.
+		document.dispatchEvent(new CustomEvent('kdna_sps_panel_added', {
+			detail: { panel: wrapper }
+		}));
+
+		return wrapper;
+	}
+
+	// --- Fetching the next project -----------------------------------------
+
+	function loadNext() {
+
+		if (loading || finished) {
+			return;
+		}
+		if (!currentNextUrl) {
+			log('No next project link, reached the end of the list.');
+			finished = true;
+			return;
+		}
+
+		var url = currentNextUrl;
+		loading = true;
+		showLoader();
+		log('Loading next project:', url);
+
+		fetch(url, { credentials: 'same-origin' })
+			.then(function (res) {
+				loadedUrls[normalise(url)] = true;
+				loadedUrls[normalise(res.url)] = true;
+				return res.text().then(function (html) {
+					return { html: html, finalUrl: res.url };
+				});
+			})
+			.then(function (data) {
+
+				var doc = new DOMParser().parseFromString(data.html, 'text/html');
+				injectPostCss(doc);
+
+				var newContent = findContainer(doc);
+				if (!newContent) {
+					log('Fetched page had no content container, stopping.');
+					finished = true;
+					return;
+				}
+
+				var newPanel = appendPanel(newContent, data.finalUrl || url, doc.title || '');
+
+				// Pin this project's own background images so they cannot be
+				// overridden by another project sharing the same template.
+				applyOwnBackgrounds(doc, newPanel);
+
+				// Experimental: re-run the loaded project's own MotionPage init.
+				reExecuteMotionPageScripts(doc);
+
+				// Work out the link to the project after this one.
+				currentNextUrl = findNextLink(lastPanel);
+				log('Next up after this:', currentNextUrl);
+				if (!currentNextUrl) {
+					finished = true;
+				}
+			})
+			.catch(function (err) {
+				log('Load failed:', err);
+			})
+			.then(function () {
+				hideLoader();
+				loading = false;
+				// If the new content was short, the trigger may still be in view, so check again.
+				maybeLoadMore();
+			});
+	}
+
+	// --- Deciding when to load ---------------------------------------------
+
+	function maybeLoadMore() {
+		var scrollBottom = window.scrollY + window.innerHeight;
+		var docHeight = document.documentElement.scrollHeight;
+		if (scrollBottom >= docHeight - (cfg.triggerOffset || 1200)) {
+			loadNext();
 		}
 	}
 
@@ -246,108 +491,372 @@
 			return;
 		}
 		ticking = true;
-		var raf = window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
-		raf(function () {
-			check();
+		window.requestAnimationFrame(function () {
+			maybeLoadMore();
 			ticking = false;
 		});
 	}
 
-	// ── Persistent-element pinning ───────────────────────────────────────────
-	// A stable view-transition-name keeps the header/logo painted in place across
-	// the crossfade instead of dissolving (the flicker). Elementor's sticky effect
-	// clones the header, though, so a plain CSS name lands on two elements and the
-	// browser voids it. Here we re-apply the name with JS to ONLY the live element
-	// (skipping the hidden sticky spacer clone), right before each page snapshot.
-	var pins = (cfg.pins && cfg.pins.length) ? cfg.pins : null;
-	var pinScheduled = false;
+	// --- Swapping the URL and title to match what is on screen -------------
 
-	// Is this the on-screen element, not a hidden Elementor sticky spacer/clone?
-	function pinIsLive(el) {
-		if (el.classList && el.classList.contains('elementor-sticky__spacer')) {
-			return false;
-		}
-		var cs = window.getComputedStyle(el);
-		if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) {
-			return false;
-		}
-		var r = el.getBoundingClientRect();
-		return r.width > 0 && r.height > 0;
-	}
+	function observePanel(panel) {
 
-	function applyPins() {
-		if (!pins || cfg.transitionMode !== 'crossfade') {
+		if (!('IntersectionObserver' in window)) {
 			return;
 		}
-		for (var i = 0; i < pins.length; i++) {
-			var els = [].slice.call(document.querySelectorAll(pins[i].sel));
-			if (!els.length) {
-				log('Pin: no element matches', pins[i].sel);
-				continue;
-			}
-			var live = els.filter(pinIsLive);
-			if (!live.length) {
-				live = els;
-			}
-			// Prefer a fixed/sticky element nearest the top — the visible header.
-			live.sort(function (a, b) {
-				var pa = window.getComputedStyle(a).position;
-				var pb = window.getComputedStyle(b).position;
-				var fa = (pa === 'fixed' || pa === 'sticky') ? 0 : 1;
-				var fb = (pb === 'fixed' || pb === 'sticky') ? 0 : 1;
-				if (fa !== fb) {
-					return fa - fb;
-				}
-				return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+
+		if (!panelObserver) {
+			// The "-50%" top and bottom margins create a trigger line down the
+			// middle of the screen. Whichever panel crosses it becomes the active one.
+			panelObserver = new IntersectionObserver(function (entries) {
+				entries.forEach(function (entry) {
+					if (!entry.isIntersecting) {
+						return;
+					}
+					var url = entry.target.getAttribute('data-kdna-url');
+					var title = entry.target.getAttribute('data-kdna-title');
+					if (url && normalise(url) !== normalise(location.href)) {
+						var displayUrl = withDebug(url);
+						history.replaceState({ kdnaSps: true }, title || '', displayUrl);
+						if (title) {
+							document.title = title;
+						}
+						log('Address bar now showing:', displayUrl);
+					}
+				});
+			}, {
+				rootMargin: '-50% 0px -50% 0px',
+				threshold: 0
 			});
-			var chosen = live[0];
-			for (var j = 0; j < els.length; j++) {
-				// Inline style beats the baseline stylesheet, so only ONE element
-				// carries the name at snapshot time and the browser keeps it valid.
-				els[j].style.viewTransitionName = (els[j] === chosen) ? pins[i].name : 'none';
+		}
+
+		panelObserver.observe(panel);
+	}
+
+	// --- Waking up Elementor on each loaded project ------------------------
+
+	// Main entry: when a new project is added, get its animations going.
+	function reinitElementor(panel) {
+
+		if (!cfg.reinitAnimations) {
+			return;
+		}
+
+		// A quick snapshot of what we are working with, visible with ?kdna_debug=1.
+		logEnvironment(panel);
+
+		// Let the browser lay the new content out, then act.
+		setTimeout(function () {
+			runElementorReady(panel);     // wake up sliders and custom widgets
+			setupEntranceAnimations(panel); // replay Elementor entrance animations ourselves
+			refreshScrollAnimations();    // nudge GSAP and other scroll based effects
+			// Tell any custom animation scripts (such as GSAP widgets) about the new content.
+			document.dispatchEvent(new CustomEvent('kdna:content-added', { detail: { container: panel } }));
+		}, 0);
+	}
+
+	// Print a summary of the environment so we can diagnose anything that stays put.
+	function logEnvironment(panel) {
+		if (!cfg.debug) {
+			return;
+		}
+		var ef = window.elementorFrontend;
+		var types = {};
+		panel.querySelectorAll('.elementor-widget').forEach(function (n) {
+			var t = n.getAttribute('data-widget_type');
+			if (t) { types[t] = (types[t] || 0) + 1; }
+		});
+		log('Environment check:', {
+			jQuery: !!window.jQuery,
+			elementorFrontend: !!ef,
+			runReadyTrigger: !!(ef && ef.elementsHandler && ef.elementsHandler.runReadyTrigger),
+			gsap: !!window.gsap,
+			ScrollTrigger: !!(window.ScrollTrigger || (window.gsap && window.gsap.ScrollTrigger)),
+			invisibleElements: panel.querySelectorAll('.elementor-invisible').length,
+			widgetTypes: types
+		});
+	}
+
+	// Re-run Elementor's ready routine so widget handlers (sliders, carousels,
+	// and your custom KDNA widgets such as the GSAP text reveal) wake up.
+	function runElementorReady(panel) {
+
+		var $ = window.jQuery;
+		var ef = window.elementorFrontend;
+
+		if (!$ || !ef || !ef.hooks || typeof ef.hooks.doAction !== 'function') {
+			log('elementorFrontend hooks not available, cannot re-init widgets.');
+			return;
+		}
+
+		var nodes = panel.querySelectorAll('.elementor-element');
+		var fired = {};
+
+		nodes.forEach(function (node) {
+			var $node = $(node);
+			try {
+				ef.hooks.doAction('frontend/element_ready/global', $node, $);
+
+				// Fire the element-type hook (container, section, column, widget).
+				// Elementor's motion-effects and background handlers hook in here,
+				// which is what brings parallax and video backgrounds to life.
+				var elementType = node.getAttribute('data-element_type');
+				if (elementType) {
+					ef.hooks.doAction('frontend/element_ready/' + elementType, $node, $);
+					fired[elementType] = (fired[elementType] || 0) + 1;
+				}
+
+				// Then the specific widget handler (sliders, your custom widgets).
+				var widgetType = node.getAttribute('data-widget_type');
+				if (widgetType) {
+					ef.hooks.doAction('frontend/element_ready/' + widgetType, $node, $);
+					fired[widgetType] = (fired[widgetType] || 0) + 1;
+				}
+			} catch (e) {
+				log('Ready-hook error:', e);
 			}
-			log('Pin applied:', pins[i].sel, '→', pins[i].name, 'on 1 of', els.length, 'match(es)');
+		});
+
+		log('Fired Elementor ready hooks for widget types:', fired);
+	}
+
+	// Read an Elementor element's entrance animation from its settings.
+	function getAnimation(el) {
+		var raw = el.getAttribute('data-settings');
+		if (!raw) {
+			return null;
+		}
+		try {
+			var s = JSON.parse(raw);
+			var name = s._animation || s.animation || s._animation_mobile || s._animation_tablet;
+			if (!name || name === 'none') {
+				return null;
+			}
+			var delay = s._animation_delay || s.animation_delay || 0;
+			return { name: name, delay: delay };
+		} catch (e) {
+			return null;
 		}
 	}
 
-	if (pins) {
-		// pageswap: the outgoing page, just before its snapshot is captured.
-		// pagereveal: the incoming page, just before it first renders.
-		window.addEventListener('pageswap', function (e) {
-			if (e.viewTransition) { applyPins(); }
-		});
-		window.addEventListener('pagereveal', function (e) {
-			if (e.viewTransition) { applyPins(); }
-		});
-		// Keep the name on the live element as the sticky state flips on scroll.
-		window.addEventListener('scroll', function () {
-			if (pinScheduled) { return; }
-			pinScheduled = true;
-			var raf = window.requestAnimationFrame || function (fn) { return setTimeout(fn, 16); };
-			raf(function () { applyPins(); pinScheduled = false; });
-		}, { passive: true });
+	// Reveal and animate one element the way Elementor would.
+	function playAnimation(el) {
+		var anim = getAnimation(el);
+		el.classList.remove('elementor-invisible');
+		if (anim) {
+			if (anim.delay) {
+				el.style.animationDelay = anim.delay + 'ms';
+			}
+			el.classList.add('animated', anim.name);
+			log('Played entrance animation:', anim.name);
+		}
 	}
 
+	// Watch the entrance-animated items in this project. As each scrolls into
+	// view we give Elementor a brief grace period to handle it, and if it has
+	// not, we play the animation ourselves. This guarantees the effect runs and
+	// keeps the staggered, scroll-based timing.
+	function setupEntranceAnimations(panel) {
+
+		var items = panel.querySelectorAll('.elementor-invisible');
+		log('Entrance-animation elements:', items.length);
+
+		if (!items.length) {
+			return;
+		}
+
+		if (!('IntersectionObserver' in window)) {
+			items.forEach(playAnimation);
+			return;
+		}
+
+		var obs = new IntersectionObserver(function (entries, o) {
+			entries.forEach(function (entry) {
+				if (!entry.isIntersecting) {
+					return;
+				}
+				var el = entry.target;
+				o.unobserve(el);
+				setTimeout(function () {
+					if (el.classList.contains('elementor-invisible')) {
+						playAnimation(el);
+					}
+				}, 250);
+			});
+		}, { threshold: 0.15 });
+
+		items.forEach(function (el) {
+			obs.observe(el);
+		});
+	}
+
+	// Nudge GSAP and other scroll-driven libraries to recalculate after the
+	// page height has changed.
+	function refreshScrollAnimations() {		try {
+			if (window.ScrollTrigger && typeof window.ScrollTrigger.refresh === 'function') {
+				window.ScrollTrigger.refresh();
+				log('Refreshed GSAP ScrollTrigger.');
+			} else if (window.gsap && window.gsap.ScrollTrigger) {
+				window.gsap.ScrollTrigger.refresh();
+				log('Refreshed gsap.ScrollTrigger.');
+			}
+		} catch (e) {
+			log('ScrollTrigger refresh issue:', e);
+		}
+		// Many scroll effects recalculate on a resize event.
+		window.dispatchEvent(new Event('resize'));
+	}
+
+	// Experimental: re-run a loaded project's own MotionPage init script so its
+	// animations rebuild for the new content. We target only scripts whose id
+	// starts with "mp-" so nothing else on the page is touched.
+	function reExecuteMotionPageScripts(doc) {
+
+		if (!cfg.reexecScripts) {
+			return;
+		}
+
+		var scripts = doc.querySelectorAll('script[id^="mp-"]:not([src])');
+		log('MotionPage inline scripts found in fetched page:', scripts.length);
+
+		if (!scripts.length) {
+			return;
+		}
+
+		scripts.forEach(function (old) {
+			try {
+				var fresh = document.createElement('script');
+				if (old.id) {
+					fresh.id = old.id + '-kdna-reexec';
+				}
+				fresh.textContent = old.textContent;
+				document.body.appendChild(fresh);
+				log('Re-ran MotionPage script:', old.id);
+			} catch (e) {
+				log('MotionPage re-run issue:', e);
+			}
+		});
+
+		// Once MotionPage has rebuilt, recalculate scroll positions.
+		setTimeout(refreshScrollAnimations, 60);
+	}
+
+	// --- Loading indicator -------------------------------------------------
+
+	// Build the inside of the loader: a spinner, or a custom image if one is set.
+	function buildLoaderInner() {
+		var loader = cfg.loader || {};
+		if (loader.type === 'image' && loader.image) {
+			return '<img class="kdna-sps-loader-img" src="' + loader.image + '" alt="Loading">';
+		}
+		return '<span class="kdna-sps-spinner"></span>';
+	}
+
+	function showLoader() {
+		if (!loaderEl) {
+			loaderEl = document.createElement('div');
+			loaderEl.className = 'kdna-sps-loader';
+			loaderEl.innerHTML = buildLoaderInner();
+			document.body.appendChild(loaderEl);
+		}
+		loaderEl.classList.add('is-active');
+	}
+
+	function hideLoader() {
+		if (loaderEl) {
+			loaderEl.classList.remove('is-active');
+		}
+	}
+
+	// --- Marquee bands -----------------------------------------------------
+
+	// The theme's marquee strips were initialised by an inline <script> bound to
+	// window 'load' (which fires once and never sees AJAX-loaded projects, and
+	// only ever grabs the first match on the page). We run the same effect here
+	// instead — per panel, scoped, and idempotent — so every project's marquee
+	// moves. Add the class .marquee (scrolls left) or .marquee2 (scrolls right)
+	// in Elementor and REMOVE the old inline <script> so nothing runs twice.
+
+	function initMarquees(scope) {
+		var speed = (typeof cfg.marqueeSpeed === 'number' && cfg.marqueeSpeed > 0) ? cfg.marqueeSpeed : 0.7;
+		scope.querySelectorAll('.marquee').forEach(function (el) {
+			startMarquee(el, speed, 'left');
+		});
+		scope.querySelectorAll('.marquee2').forEach(function (el) {
+			startMarquee(el, speed, 'right');
+		});
+	}
+
+	function startMarquee(parent, speed, direction) {
+		// Never clone or start the same strip twice (guards re-init and double load).
+		if (parent.getAttribute('data-kdna-marquee') || !parent.children.length) {
+			return;
+		}
+		parent.setAttribute('data-kdna-marquee', '1');
+
+		if (direction === 'right') {
+			// Mirrors the old Marquee2(): two extra clones, scrolling rightward.
+			var twin = parent.innerHTML;
+			parent.innerHTML += twin + twin;
+			var totalWidth = parent.children[0].clientWidth * 2;
+			var j = parent.children[0].clientWidth;
+			setInterval(function () {
+				j -= speed;
+				if (j <= 0) { j = totalWidth; }
+				parent.children[0].style.marginLeft = '-' + j + 'px';
+			}, 0);
+			log('Marquee (.marquee2, right) started');
+			return;
+		}
+
+		// Mirrors the old Marquee(): one clone, scrolling leftward.
+		var clone = parent.innerHTML;
+		parent.innerHTML += clone;
+		var i = 0;
+		setInterval(function () {
+			i += speed;
+			if (i >= parent.children[0].clientWidth) { i = 0; }
+			parent.children[0].style.marginLeft = '-' + i + 'px';
+		}, 0);
+		log('Marquee (.marquee, left) started');
+	}
+
+	// --- Start up ----------------------------------------------------------
+
 	function init() {
+
+		// When a new project is added, wake up its Elementor animations.
+		document.addEventListener('kdna_sps_panel_added', function (e) {
+			reinitElementor(e.detail.panel);
+			initMarquees(e.detail.panel);
+		});
+
+		// Tag the project we started on as the first panel, so scrolling back up
+		// restores its URL and title.
+		container.classList.add('kdna-sps-panel');
+		container.setAttribute('data-kdna-url', normalise(location.href));
+		container.setAttribute('data-kdna-title', document.title);
+		panels.push(container);
+		observePanel(container);
+		lastPanel = container;
+
+		currentNextUrl = findNextLink(container);
+		log('Settings: reinitAnimations=' + cfg.reinitAnimations + ', reexecScripts(MotionPage)=' + cfg.reexecScripts);
+		log('First next project:', currentNextUrl);
+
 		window.addEventListener('scroll', onScroll, { passive: true });
 		window.addEventListener('resize', onScroll, { passive: true });
-		applyPins();
-		resolveTargets();
-		log('Next project link:', {
-			tag: nextEl.tagName,
-			cls: (nextEl.className || '').slice(0, 80),
-			href: nextUrl,
-			topAtLoad: Math.round(nextEl.getBoundingClientRect().top)
-		});
-		log('Config:', {
-			advanceSelector: advanceSel || '(next link)',
-			advanceResolved: advanceResolved,
-			preloadSelector: preloadSel || '(on first scroll)',
-			preloadResolved: preloadResolved,
-			viewport: window.innerHeight
-		});
-		// Run a first pass so anything already in position is handled.
-		check();
+
+		// Start the marquees on the project we loaded on. Wait for full load so the
+		// strip widths (which depend on images and fonts) are measured correctly.
+		if (document.readyState === 'complete') {
+			initMarquees(document);
+		} else {
+			window.addEventListener('load', function () { initMarquees(document); });
+		}
+
+		// In case the very first project is short, check straight away.
+		maybeLoadMore();
 	}
 
 	if (document.readyState === 'loading') {
