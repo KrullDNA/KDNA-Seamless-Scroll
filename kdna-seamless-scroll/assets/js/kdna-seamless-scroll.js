@@ -310,6 +310,117 @@
 		}
 	}
 
+	// --- Per-panel scoped backgrounds --------------------------------------
+
+	// Stacking many projects that share one Elementor template means they share
+	// element ids, so a rule like .elementor-element-XXXX collides across panels
+	// and every project borrows the first one's images. We fix this by taking each
+	// fetched project's own CSS, rescoping every background rule to THIS panel's
+	// wrapper id, and injecting it. Id-scoped rules beat the shared ones, so each
+	// panel shows its own backgrounds — heroes, sections, overlays and parallax
+	// layers alike, including ancestor-scoped (.elementor-3022 ...) rules that the
+	// per-element pinning could not reach.
+	function applyScopedBackgrounds(doc, panel) {
+		var panelSel = '#' + panel.id;
+
+		// 1) Inline <style> blocks in the fetched page (Elementor internal/dynamic CSS).
+		var inline = '';
+		doc.querySelectorAll('style').forEach(function (st) {
+			var css = st.textContent || '';
+			if (css.indexOf('elementor-element-') > -1 && css.indexOf('url(') > -1) {
+				inline += '\n' + css;
+			}
+		});
+		if (inline) {
+			injectScopedCss(inline, panelSel, panel.id, 'inline');
+		}
+
+		// 2) External per-post Elementor stylesheets, fetched and rescoped.
+		doc.querySelectorAll('link[rel="stylesheet"][href]').forEach(function (link) {
+			var href = link.getAttribute('href');
+			if (!href || href.indexOf('/uploads/elementor/css/post-') === -1) {
+				return;
+			}
+			fetch(href, { credentials: 'same-origin' })
+				.then(function (r) { return r.text(); })
+				.then(function (css) {
+					if (css.indexOf('url(') > -1) {
+						injectScopedCss(css, panelSel, panel.id, href.split('/').pop());
+					}
+				})
+				.catch(function (e) { log('Scoped CSS fetch failed:', href, e); });
+		});
+	}
+
+	function injectScopedCss(cssText, panelSel, panelId, source) {
+		var rescoped = rescopeProjectCss(cssText, panelSel);
+		if (!rescoped) {
+			return;
+		}
+		var styleEl = document.createElement('style');
+		styleEl.setAttribute('data-kdna-panel-css', panelId);
+		styleEl.textContent = rescoped;
+		document.head.appendChild(styleEl);
+		log('Injected scoped backgrounds from ' + source + ' for ' + panelSel);
+	}
+
+	// Parse CSS through a disabled <style> so the browser handles @media, escapes
+	// and the like, then rebuild only the background rules, rescoped to the panel.
+	function rescopeProjectCss(cssText, panelSel) {
+		var tmp = document.createElement('style');
+		tmp.media = 'not all';
+		tmp.textContent = cssText;
+		document.head.appendChild(tmp);
+		var out = '';
+		try {
+			if (tmp.sheet) {
+				out = rescopeRules(tmp.sheet.cssRules, panelSel);
+			}
+		} catch (e) {
+			log('Rescope parse issue:', e);
+		}
+		document.head.removeChild(tmp);
+		return out;
+	}
+
+	function rescopeRules(rules, panelSel) {
+		var out = '';
+		for (var i = 0; i < rules.length; i++) {
+			var rule = rules[i];
+			if (rule.type === 1) { // CSSStyleRule
+				var body = rule.style && rule.style.cssText;
+				if (!body || !/url\(|background/i.test(body)) {
+					continue;
+				}
+				var sels = rule.selectorText.split(',').map(function (sel) {
+					return rescopeSelector(sel.trim(), panelSel);
+				}).filter(Boolean);
+				if (sels.length) {
+					out += sels.join(',') + '{' + body + '}';
+				}
+			} else if (rule.type === 4) { // CSSMediaRule
+				var inner = rescopeRules(rule.cssRules, panelSel);
+				if (inner) {
+					out += '@media ' + rule.media.mediaText + '{' + inner + '}';
+				}
+			}
+		}
+		return out;
+	}
+
+	// Rewrite one selector so it applies inside this panel only: keep the part from
+	// the project's element id onward and drop the page/template scope in front of
+	// it (.elementor-3022, body.elementor-page-..., etc.), replacing it with the
+	// panel wrapper. Selectors with no element id (global :root/body kit variables)
+	// are dropped so we never reach across into other panels.
+	function rescopeSelector(sel, panelSel) {
+		var idx = sel.indexOf('.elementor-element-');
+		if (idx === -1) {
+			return '';
+		}
+		return panelSel + ' ' + sel.slice(idx);
+	}
+
 	// --- Adding a loaded project to the page -------------------------------
 
 	// Common lazy-load patterns hold the real image in a data attribute and only
@@ -453,6 +564,7 @@
 				// Pin this project's own background images so they cannot be
 				// overridden by another project sharing the same template.
 				applyOwnBackgrounds(doc, newPanel);
+				applyScopedBackgrounds(doc, newPanel);
 
 				// Experimental: re-run the loaded project's own MotionPage init.
 				reExecuteMotionPageScripts(doc);
@@ -693,7 +805,7 @@
 	// Nudge GSAP and other scroll-driven libraries to recalculate after the
 	// page height has changed.
 	function refreshScrollAnimations() {		try {
-			if (window.ScrollTrigger && typeof window.ScrollTrigger.refresh === 'function') {
+			if (window.gsap && window.ScrollTrigger && typeof window.ScrollTrigger.refresh === 'function') {
 				window.ScrollTrigger.refresh();
 				log('Refreshed GSAP ScrollTrigger.');
 			} else if (window.gsap && window.gsap.ScrollTrigger) {
